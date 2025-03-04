@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { parseSSIMFile } from '../utils/ssimParser/index'; // Исправлен импорт
+import { parseSSIMFile } from '../utils/ssimParser/index';
 
 const SSIMUploadPage = () => {
   const [file, setFile] = useState(null);
@@ -101,6 +101,22 @@ const SSIMUploadPage = () => {
     }
   };
 
+  // Функция для форматирования даты в удобный формат
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
   return (
     <div className="ssim-upload-page">
       <h2>Загрузка SSIM-файла</h2>
@@ -189,10 +205,10 @@ const SSIMUploadPage = () => {
                     <td>{flight.departure.time}</td>
                     <td>{flight.arrival.time}</td>
                     <td>
-                      {flight.period.startDate} - {flight.period.endDate}
+                      {formatDate(flight.period.startDate)} - {formatDate(flight.period.endDate)}
                     </td>
                     <td>{flight.daysOfOperation.map(day => day.slice(0, 2)).join(', ')}</td>
-                    <td>{flight.aircraftId}</td>
+                    <td>{flight.aircraftType}</td>
                   </tr>
                 ))}
               </tbody>
