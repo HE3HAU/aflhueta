@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { parseSSIMFile } from '../utils/ssimParser'; // Обновленный импорт
+import { parseSSIMFile } from '../utils/ssimParser/index'; // Исправлен импорт
 
 const SSIMUploadPage = () => {
   const [file, setFile] = useState(null);
@@ -36,6 +36,15 @@ const SSIMUploadPage = () => {
       
       if (result.success) {
         setParseResult(result);
+        
+        // Отладочный вывод для проверки номеров рейсов
+        if (result.flights && result.flights.length > 0) {
+          console.log("Примеры обработанных рейсов:");
+          result.flights.slice(0, 5).forEach((flight, index) => {
+            console.log(`${index + 1}. ${flight.fullFlightNumber} (${flight.departure.airport}-${flight.arrival.airport})`);
+          });
+        }
+        
         setPreviewData(result.flights.slice(0, 10)); // Первые 10 рейсов для предпросмотра
       } else {
         setError(`Ошибка при парсинге файла: ${result.error}`);
