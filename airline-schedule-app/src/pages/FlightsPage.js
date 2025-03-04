@@ -1,6 +1,8 @@
+// Обновленный файл src/pages/FlightsPage.js без генерации демо-рейсов
+
 import React, { useState, useEffect } from 'react';
 import FlightGanttChart from '../components/FlightGanttChart/FlightGanttChart';
-import { generateSchedule } from '../utils/ssimParser'; // Обновленный импорт
+import { generateSchedule } from '../utils/ssimParser/index';
 
 const FlightsPage = () => {
   const [flights, setFlights] = useState([]);
@@ -26,48 +28,110 @@ const FlightsPage = () => {
           
           // Проверка наличия рейсов
           if (data.flights && data.flights.length > 0) {
-            // Определяем период для отображения
-            const today = new Date();
-            const weekStart = new Date(today);
-            weekStart.setDate(today.getDate() - today.getDay() + 1);
+            // ВАЖНО: Проверяем даты периода для всех рейсов
+            let hasValidDates = true;
+            data.flights.forEach((flight, index) => {
+              if (index < 5) { // Логгируем первые 5 рейсов
+                console.log(`Рейс из хранилища: ${flight.fullFlightNumber}, период: ${flight.period.startDate} - ${flight.period.endDate}`);
+              }
+              
+              // Проверка валидности дат
+              const startDate = new Date(flight.period.startDate);
+              const endDate = new Date(flight.period.endDate);
+              if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+                hasValidDates = false;
+                console.error(`Некорректные даты для рейса ${flight.fullFlightNumber}`);
+              }
+            });
             
-            const weekEnd = new Date(weekStart);
-            weekEnd.setDate(weekStart.getDate() + 6);
+            if (!hasValidDates) {
+              console.error('Обнаружены рейсы с некорректными датами, возможно потребуется переформатирование');
+            }
             
-            setStartDate(weekStart);
-            setEndDate(weekEnd);
+            // ИСПРАВЛЕНИЕ: Используем даты из загруженных рейсов, чтобы определить период
+            // Находим самую раннюю и самую позднюю дату в данных
+            let earliestDate = new Date();
+            let latestDate = new Date();
+            let hasSetDates = false;
+            
+            data.flights.forEach(flight => {
+              try {
+                const flightStartDate = new Date(flight.period.startDate);
+                const flightEndDate = new Date(flight.period.endDate);
+                
+                if (!isNaN(flightStartDate.getTime()) && !isNaN(flightEndDate.getTime())) {
+                  if (!hasSetDates) {
+                    earliestDate = flightStartDate;
+                    latestDate = flightEndDate;
+                    hasSetDates = true;
+                  } else {
+                    if (flightStartDate < earliestDate) earliestDate = flightStartDate;
+                    if (flightEndDate > latestDate) latestDate = flightEndDate;
+                  }
+                }
+              } catch (e) {
+                console.error('Ошибка при обработке дат:', e);
+              }
+            });
+            
+            // Если не удалось определить даты из рейсов, используем текущую неделю
+            if (!hasSetDates) {
+              const today = new Date();
+              const startOfWeek = new Date(today);
+              startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Понедельник текущей недели
+              
+              const weekEnd = new Date(startOfWeek);
+              weekEnd.setDate(startOfWeek.getDate() + 6); // Воскресенье текущей недели
+              
+              earliestDate = startOfWeek;
+              latestDate = weekEnd;
+            }
+            
+            console.log(`Определен период данных: ${earliestDate.toISOString().split('T')[0]} - ${latestDate.toISOString().split('T')[0]}`);
+            
+            // Устанавливаем период для отображения данных
+            setStartDate(earliestDate);
+            setEndDate(latestDate);
             
             // Генерируем расписание на основе данных SSIM
             try {
-              console.log(`Генерация расписания с ${weekStart.toISOString().split('T')[0]} по ${weekEnd.toISOString().split('T')[0]}`);
+              console.log(`Генерация расписания с ${earliestDate.toISOString().split('T')[0]} по ${latestDate.toISOString().split('T')[0]}`);
+              
               const schedule = generateSchedule(
                 data.flights, 
-                weekStart.toISOString().split('T')[0], 
-                weekEnd.toISOString().split('T')[0]
+                earliestDate.toISOString().split('T')[0], 
+                latestDate.toISOString().split('T')[0]
               );
               
               console.log(`Сгенерировано ${schedule.length} рейсов в расписании`);
               
+              // Дополнительная проверка сгенерированных данных
               if (schedule.length > 0) {
+                schedule.slice(0, 5).forEach((flight, index) => {
+                  console.log(`Рейс ${index + 1} в расписании: ${flight.fullFlightNumber}, ${flight.departure.airport}-${flight.arrival.airport}, дата: ${new Date(flight.departureDatetime).toISOString().split('T')[0]}`);
+                });
+                
                 setFlights(schedule);
                 setLoading(false);
-                return; // Важно: выходим из функции, если удалось получить данные
+                return; // Успешное завершение загрузки данных
+              } else {
+                console.warn('Не удалось сгенерировать расписание из загруженных данных');
+                setError('Не удалось создать расписание из загруженного файла. Проверьте формат данных.');
               }
             } catch (err) {
               console.error('Ошибка при генерации расписания:', err);
+              setError(`Ошибка при обработке расписания: ${err.message}`);
             }
+          } else {
+            setError('Данные рейсов отсутствуют. Пожалуйста, загрузите SSIM-файл на странице загрузки.');
           }
+        } else {
+          // Если данных нет в localStorage
+          setError('Данные расписания не найдены. Пожалуйста, загрузите SSIM-файл на странице загрузки.');
         }
-        
-        console.log('Данные не найдены в localStorage или пустые, генерирую демо-рейсы');
-        // Если данных нет или их не удалось обработать, только тогда создаем демо-данные
-        generateDemoFlights();
       } catch (err) {
         console.error('Ошибка при загрузке данных:', err);
-        setError('Произошла ошибка при загрузке расписания рейсов');
-        
-        // Генерируем демо-данные в случае ошибки
-        generateDemoFlights();
+        setError(`Произошла ошибка при загрузке расписания рейсов: ${err.message}`);
       } finally {
         setLoading(false);
       }
@@ -75,92 +139,6 @@ const FlightsPage = () => {
     
     loadFlights();
   }, []);
-  
-  // Генерация демонстрационных данных для отображения
-  const generateDemoFlights = () => {
-    console.log('Генерация демо-рейсов');
-    // Определяем период для отображения
-    const today = new Date();
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay() + 1);
-    
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    
-    setStartDate(weekStart);
-    setEndDate(weekEnd);
-    
-    // Генерируем демо-рейсы
-    const demoFlights = [];
-    const airports = ['SVO', 'LED', 'KZN', 'AER', 'ROV', 'KRR', 'VVO', 'GOJ', 'SVX', 'CEK'];
-    const aircraftTypes = ['B737', 'A320', 'SSJ100', 'B777', 'A321'];
-    
-    // Создаем рейсы для каждого дня недели
-    for (let day = 0; day < 7; day++) {
-      const date = new Date(weekStart);
-      date.setDate(date.getDate() + day);
-      
-      // Создаем 10-15 рейсов в день с разными временами вылета
-      const flightsCount = 10 + Math.floor(Math.random() * 6);
-      
-      for (let i = 0; i < flightsCount; i++) {
-        // Генерируем случайное время вылета (распределено по всему дню)
-        const departureHour = Math.floor(Math.random() * 24);
-        const departureMinute = Math.floor(Math.random() * 60);
-        
-        const departureDate = new Date(date);
-        departureDate.setHours(departureHour, departureMinute, 0, 0);
-        
-        // Продолжительность полета от 1 до 4 часов
-        const durationHours = 1 + Math.floor(Math.random() * 3);
-        const durationMinutes = Math.floor(Math.random() * 60);
-        
-        const arrivalDate = new Date(departureDate);
-        arrivalDate.setHours(
-          departureDate.getHours() + durationHours,
-          departureDate.getMinutes() + durationMinutes
-        );
-        
-        // Выбираем случайные аэропорты (разные для вылета и прилета)
-        const fromIndex = Math.floor(Math.random() * airports.length);
-        let toIndex;
-        do {
-          toIndex = Math.floor(Math.random() * airports.length);
-        } while (toIndex === fromIndex);
-        
-        // Выбираем случайный тип ВС
-        const aircraftType = aircraftTypes[Math.floor(Math.random() * aircraftTypes.length)];
-        
-        // Генерируем номер рейса и делаем его совместимым с SSIM-форматом (от 1000 до 1999)
-        const flightNumber = 1000 + Math.floor(Math.random() * 999);
-        
-        // Генерируем идентификатор борта
-        const aircraftId = `${aircraftType} - A320-SU${100 + Math.floor(Math.random() * 900)}`;
-        
-        demoFlights.push({
-          airlineCode: 'SU',
-          flightNumber: flightNumber.toString(),
-          fullFlightNumber: `SU${flightNumber}`,
-          departure: {
-            airport: airports[fromIndex],
-            time: `${departureHour.toString().padStart(2, '0')}:${departureMinute.toString().padStart(2, '0')} UTC`
-          },
-          arrival: {
-            airport: airports[toIndex],
-            time: `${arrivalDate.getHours().toString().padStart(2, '0')}:${arrivalDate.getMinutes().toString().padStart(2, '0')} UTC`
-          },
-          departureDatetime: departureDate.toISOString(),
-          arrivalDatetime: arrivalDate.toISOString(),
-          duration: `${durationHours.toString().padStart(2, '0')}:${durationMinutes.toString().padStart(2, '0')}`,
-          aircraftType,
-          aircraftId
-        });
-      }
-    }
-    
-    console.log(`Создано ${demoFlights.length} демо-рейсов`);
-    setFlights(demoFlights);
-  };
   
   return (
     <div className="flights-page">
@@ -178,43 +156,52 @@ const FlightsPage = () => {
         </div>
       ) : (
         <>
-          <div className="gantt-chart-container">
-            <FlightGanttChart 
-              flights={flights} 
-              startDate={startDate} 
-              endDate={endDate} 
-            />
-          </div>
-          
-          <div className="flights-stats">
-            <div className="card">
-              <h3>Статистика расписания</h3>
-              <div className="stats-grid">
-                <div className="stat-item">
-                  <div className="stat-value">{flights.length}</div>
-                  <div className="stat-label">Всего рейсов</div>
-                </div>
-                <div className="stat-item">
-                  <div className="stat-value">
-                    {new Set(flights.map(f => f.aircraftId)).size}
+          {flights.length > 0 ? (
+            <>
+              <div className="gantt-chart-container">
+                <FlightGanttChart 
+                  flights={flights} 
+                  startDate={startDate} 
+                  endDate={endDate} 
+                />
+              </div>
+              
+              <div className="flights-stats">
+                <div className="card">
+                  <h3>Статистика расписания</h3>
+                  <div className="stats-grid">
+                    <div className="stat-item">
+                      <div className="stat-value">{flights.length}</div>
+                      <div className="stat-label">Всего рейсов</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-value">
+                        {new Set(flights.map(f => f.aircraftId)).size}
+                      </div>
+                      <div className="stat-label">Активных бортов</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-value">
+                        {new Set(flights.map(f => f.departure.airport)).size}
+                      </div>
+                      <div className="stat-label">Аэропортов вылета</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-value">
+                        {new Set(flights.map(f => f.arrival.airport)).size}
+                      </div>
+                      <div className="stat-label">Аэропортов прилета</div>
+                    </div>
                   </div>
-                  <div className="stat-label">Активных бортов</div>
-                </div>
-                <div className="stat-item">
-                  <div className="stat-value">
-                    {new Set(flights.map(f => f.departure.airport)).size}
-                  </div>
-                  <div className="stat-label">Аэропортов вылета</div>
-                </div>
-                <div className="stat-item">
-                  <div className="stat-value">
-                    {new Set(flights.map(f => f.arrival.airport)).size}
-                  </div>
-                  <div className="stat-label">Аэропортов прилета</div>
                 </div>
               </div>
+            </>
+          ) : (
+            <div className="no-data-message">
+              <p>Нет данных для отображения. Пожалуйста, загрузите SSIM-файл на странице загрузки.</p>
+              <a href="/upload" className="navigation-button">Перейти на страницу загрузки</a>
             </div>
-          </div>
+          )}
         </>
       )}
       
@@ -268,6 +255,29 @@ const FlightsPage = () => {
           .stat-label {
             color: #555;
             font-size: 14px;
+          }
+          
+          .no-data-message {
+            padding: 20px;
+            background-color: #e8f5e9;
+            border-radius: 4px;
+            margin: 20px 0;
+            text-align: center;
+          }
+          
+          .navigation-button {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px 15px;
+            background-color: #1976d2;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+          }
+          
+          .navigation-button:hover {
+            background-color: #1565c0;
           }
         `}
       </style>
