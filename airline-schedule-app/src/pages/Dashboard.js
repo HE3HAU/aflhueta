@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { parseSSIMFile, generateSchedule } from '../utils/ssimParser/index';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
@@ -11,16 +10,69 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
-    // В реальном приложении здесь был бы API-запрос
-    // Для демонстрации используем моковые данные
-    setTimeout(() => {
-      setStats({
-        totalFlights: 1250,
-        activeBortsCount: 32,
-        todayFlights: 86,
-        lastUpdate: new Date().toLocaleString('ru-RU')
-      });
-    }, 1000);
+    // Загрузка реальных данных из localStorage
+    const loadData = () => {
+      try {
+        const storedData = localStorage.getItem('flightsData');
+        if (storedData) {
+          const data = JSON.parse(storedData);
+          
+          // Если есть данные, считаем статистику
+          if (data && data.flights && data.flights.length > 0) {
+            // Количество рейсов
+            const totalFlights = data.flights.length;
+            
+            // Количество уникальных бортов
+            const activeBortsCount = new Set(
+              data.flights.map(flight => flight.aircraftId)
+            ).size;
+            
+            // Рейсы на сегодня (приблизительная оценка)
+            // В реальном приложении нужно учитывать дни операций и генерировать расписание
+            const today = new Date().toISOString().split('T')[0];
+            const todayFlights = data.flights.filter(flight => {
+              if (!flight.period || !flight.period.startDate || !flight.period.endDate) {
+                return false;
+              }
+              
+              const startDate = flight.period.startDate;
+              const endDate = flight.period.endDate;
+              
+              return startDate <= today && today <= endDate;
+            }).length;
+            
+            setStats({
+              totalFlights,
+              activeBortsCount,
+              todayFlights,
+              lastUpdate: new Date(data.timestamp).toLocaleString('ru-RU')
+            });
+            
+            return;
+          }
+        }
+        
+        // Если данных нет, используем демо-значения
+        setStats({
+          totalFlights: 0,
+          activeBortsCount: 0,
+          todayFlights: 0,
+          lastUpdate: 'Нет данных'
+        });
+      } catch (error) {
+        console.error('Ошибка при загрузке статистики:', error);
+        
+        // В случае ошибки, используем демо-значения
+        setStats({
+          totalFlights: 0,
+          activeBortsCount: 0,
+          todayFlights: 0,
+          lastUpdate: 'Ошибка при загрузке'
+        });
+      }
+    };
+    
+    loadData();
   }, []);
 
   return (
