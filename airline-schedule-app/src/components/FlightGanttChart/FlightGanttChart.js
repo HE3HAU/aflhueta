@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './FlightGanttChart.css';
-import { generateSchedule } from '../utils/ssimParser';
-
+import { generateSchedule } from '../../utils/ssimParser/index';
 
 const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
   const [visibleFlights, setVisibleFlights] = useState([]);
@@ -228,6 +227,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     const groups = {};
     
     visibleFlights.forEach(flight => {
+      // Используем номер борта и тип ВС для группировки
       const aircraftId = flight.aircraftId || 'unknown';
       
       if (!groups[aircraftId]) {
@@ -240,6 +240,9 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       groups[aircraftId].flights.push(flight);
     });
+    
+    // Отладочная информация о группировке
+    console.log(`Сгруппировано ${Object.keys(groups).length} бортов ВС из ${visibleFlights.length} рейсов`);
     
     return Object.values(groups).sort((a, b) => 
       a.aircraftId.localeCompare(b.aircraftId)
@@ -266,6 +269,12 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
         arrivalTime.setDate(arrivalTime.getDate() + 1);
       }
     }
+    
+    // Добавляем отладочную информацию
+    console.log(`Расчет позиции для рейса: ${flight.fullFlightNumber}`);
+    console.log(`Маршрут: ${flight.departure.airport} - ${flight.arrival.airport}`);
+    console.log(`Время вылета: ${departureTime.toISOString()}`);
+    console.log(`Время прилета: ${arrivalTime.toISOString()}`);
     
     if (viewType === 'daily') {
       // Для суточного представления
@@ -318,8 +327,12 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       const diffDays = Math.round((departureDay - startOfPeriod) / (1000 * 60 * 60 * 24));
       
+      console.log(`День вылета относительно начала периода: ${diffDays}`);
+      console.log(`Общее количество дней в отображаемом периоде: ${timeSlots.length}`);
+      
       // Проверяем, находится ли дата в пределах отображаемого периода
       if (diffDays < 0 || diffDays >= timeSlots.length) {
+        console.log(`Рейс ${flight.fullFlightNumber} вне периода отображения`);
         return { left: 0, width: 0, isHidden: true };
       }
       
@@ -491,6 +504,11 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                     }
                   }
                   
+                  // Для отладки добавим консольный вывод для первых нескольких рейсов
+                  if (flightIndex < 5) {
+                    console.log(`Рендеринг рейса: ${flight.fullFlightNumber}, Позиция: left=${left}px, width=${width}px`);
+                  }
+                  
                   return (
                     <div 
                       key={flightIndex} 
@@ -504,7 +522,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                       onClick={() => handleFlightClick(flight)}
                     >
                       <div className="flight-label">
-                        {flight.fullFlightNumber || flight.flightNumber}
+                        {flight.fullFlightNumber}
                       </div>
                       <div className="flight-route">
                         {flight.departure.airport} - {flight.arrival.airport}
