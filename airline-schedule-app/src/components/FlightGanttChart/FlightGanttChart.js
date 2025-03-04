@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import './FlightGanttChart.css';
-import { generateSchedule } from '../../utils/ssimParser/index';
 
 const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
   const [visibleFlights, setVisibleFlights] = useState([]);
@@ -38,7 +37,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
   // Фильтрация рейсов по выбранному диапазону дат
   const filterFlights = () => {
     console.log('Фильтрация рейсов. Всего рейсов:', flights.length);
-    console.log('Период:', currentStartDate, currentEndDate);
+    console.log('Период:', currentStartDate.toISOString(), currentEndDate.toISOString());
     
     if (!flights || !flights.length) {
       console.log('Нет рейсов для фильтрации');
@@ -66,14 +65,8 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       // В зависимости от формата данных рейса
       let departureDate;
       if (flight.departureDatetime) {
-        // Если есть конкретное время вылета
-        if (typeof flight.departureDatetime === 'string') {
-          departureDate = new Date(flight.departureDatetime);
-        } else {
-          departureDate = new Date(flight.departureDatetime);
-        }
+        departureDate = new Date(flight.departureDatetime);
       } else if (flight.departure && flight.departure.time) {
-        // Если есть только время, предполагаем текущую дату
         departureDate = combineDateAndTime(currentStartDate, flight.departure.time);
       } else {
         return false;
@@ -222,31 +215,114 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     setCurrentEndDate(newEndDate);
   };
   
-  // Группировка рейсов по бортам
+  // Группировка рейсов по бортам с улучшенной сортировкой
   const groupedFlights = () => {
+    // Создаем карту для группировки рейсов по воздушному судну
     const groups = {};
     
+    // Отображение ключа групп - для предотвращения дублирования в интерфейсе
+    const displayedGroups = new Set();
+    
+    // Сначала распределяем все рейсы по типам ВС
+    const aircraftTypes = {};
+    
     visibleFlights.forEach(flight => {
-      // Используем номер борта и тип ВС для группировки
-      const aircraftId = flight.aircraftId || 'unknown';
-      
-      if (!groups[aircraftId]) {
-        groups[aircraftId] = {
-          aircraftId,
-          aircraftType: flight.aircraftType || 'Неизвестно',
-          flights: []
-        };
+      const aircraftType = flight.aircraftType || 'Unknown';
+      if (!aircraftTypes[aircraftType]) {
+        aircraftTypes[aircraftType] = [];
       }
       
-      groups[aircraftId].flights.push(flight);
+      // Добавляем рейс к соответствующему типу ВС
+      aircraftTypes[aircraftType].push(flight);
     });
     
-    // Отладочная информация о группировке
-    console.log(`Сгруппировано ${Object.keys(groups).length} бортов ВС из ${visibleFlights.length} рейсов`);
+    // Теперь для каждого типа ВС организуем группы без повторений ID
+    Object.entries(aircraftTypes).forEach(([aircraftType, flights]) => {
+      // Сортируем рейсы по времени вылета
+      flights.sort((a, b) => {
+        const timeA = new Date(a.departureDatetime);
+        const timeB = new Date(b.departureDatetime);
+        return timeA - timeB;
+      });
+      
+      // Создаем виртуальные группы для каждого типа самолета
+      // Мы будем распределять рейсы по этим группам, чтобы избежать наложений
+      const virtualGroups = [];
+      
+      flights.forEach(flight => {
+        // Для каждого рейса определяем его временные интервалы
+        const departureTime = new Date(flight.departureDatetime);
+        const arrivalTime = new Date(flight.arrivalDatetime);
+        
+        // Ищем подходящую виртуальную группу для размещения рейса
+        let foundGroup = false;
+        
+        for (let i = 0; i < virtualGroups.length; i++) {
+          const group = virtualGroups[i];
+          
+          // Проверяем, не пересекается ли текущий рейс с другими в этой группе
+          let canAddToGroup = true;
+          
+          for (const existingFlight of group) {
+            const existingDeparture = new Date(existingFlight.departureDatetime);
+            const existingArrival = new Date(existingFlight.arrivalDatetime);
+            
+            // Проверка на пересечение временных интервалов
+            if (
+              (departureTime >= existingDeparture && departureTime <= existingArrival) ||
+              (arrivalTime >= existingDeparture && arrivalTime <= existingArrival) ||
+              (departureTime <= existingDeparture && arrivalTime >= existingArrival)
+            ) {
+              canAddToGroup = false;
+              break;
+            }
+          }
+          
+          // Если можно добавить рейс в эту группу, добавляем
+          if (canAddToGroup) {
+            group.push(flight);
+            foundGroup = true;
+            break;
+          }
+        }
+        
+        // Если не нашли подходящую группу, создаем новую
+        if (!foundGroup) {
+          virtualGroups.push([flight]);
+        }
+      });
+      
+      // Теперь создаем реальные группы для отображения
+      virtualGroups.forEach((groupFlights, index) => {
+        // Создаем уникальный идентификатор для группы
+        const groupId = `${aircraftType}-${index + 1}`;
+        
+        // Проверяем, не отображается ли уже эта группа
+        if (!displayedGroups.has(groupId)) {
+          displayedGroups.add(groupId);
+          
+          groups[groupId] = {
+            aircraftId: groupId,
+            aircraftType: aircraftType,
+            flights: groupFlights
+          };
+        }
+      });
+    });
     
-    return Object.values(groups).sort((a, b) => 
-      a.aircraftId.localeCompare(b.aircraftId)
-    );
+    // Сортировка групп по типу ВС и номеру
+    return Object.values(groups).sort((a, b) => {
+      // Сначала сортируем по типу ВС
+      const typeComparison = a.aircraftType.localeCompare(b.aircraftType);
+      if (typeComparison !== 0) {
+        return typeComparison;
+      }
+      
+      // Затем по номеру группы
+      const aNum = parseInt(a.aircraftId.split('-')[1]);
+      const bNum = parseInt(b.aircraftId.split('-')[1]);
+      return aNum - bNum;
+    });
   };
   
   // Рассчитываем позицию и размер блока рейса
@@ -262,7 +338,13 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       arrivalTime = new Date(flight.arrivalDatetime);
     } else {
       departureTime = combineDateAndTime(currentStartDate, flight.departure.time);
-      arrivalTime = combineDateAndTime(currentStartDate, flight.arrival.time);
+      
+      // Для ночных рейсов прибытие на следующий день
+      const arrivalDate = new Date(currentStartDate);
+      if (flight.isOvernightFlight) {
+        arrivalDate.setDate(arrivalDate.getDate() + 1);
+      }
+      arrivalTime = combineDateAndTime(arrivalDate, flight.arrival.time);
       
       // Если время прилета меньше времени вылета, считаем, что рейс прибывает на следующий день
       if (arrivalTime < departureTime) {
@@ -270,11 +352,11 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       }
     }
     
-    // Добавляем отладочную информацию
-    console.log(`Расчет позиции для рейса: ${flight.fullFlightNumber}`);
-    console.log(`Маршрут: ${flight.departure.airport} - ${flight.arrival.airport}`);
-    console.log(`Время вылета: ${departureTime.toISOString()}`);
-    console.log(`Время прилета: ${arrivalTime.toISOString()}`);
+    // Проверка валидности дат
+    if (isNaN(departureTime.getTime()) || isNaN(arrivalTime.getTime())) {
+      console.error(`Некорректные даты для рейса ${flight.fullFlightNumber}`);
+      return { left: 0, width: 0, isHidden: true };
+    }
     
     if (viewType === 'daily') {
       // Для суточного представления
@@ -325,14 +407,11 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       const departureDay = new Date(departureTime);
       departureDay.setHours(0, 0, 0, 0);
       
-      const diffDays = Math.round((departureDay - startOfPeriod) / (1000 * 60 * 60 * 24));
-      
-      console.log(`День вылета относительно начала периода: ${diffDays}`);
-      console.log(`Общее количество дней в отображаемом периоде: ${timeSlots.length}`);
+      const diffMs = departureDay - startOfPeriod;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       
       // Проверяем, находится ли дата в пределах отображаемого периода
       if (diffDays < 0 || diffDays >= timeSlots.length) {
-        console.log(`Рейс ${flight.fullFlightNumber} вне периода отображения`);
         return { left: 0, width: 0, isHidden: true };
       }
       
@@ -340,7 +419,8 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       const arrivalDay = new Date(arrivalTime);
       arrivalDay.setHours(0, 0, 0, 0);
       
-      const durationDays = Math.max(1, Math.round((arrivalDay - departureDay) / (1000 * 60 * 60 * 24)) + 1);
+      const durationMs = arrivalDay - departureDay;
+      const durationDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
       
       // Обрезаем продолжительность, если она выходит за пределы отображаемого периода
       const visibleDays = Math.min(durationDays, timeSlots.length - diffDays);
@@ -481,7 +561,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
           {groupedFlights().map((group, groupIndex) => (
             <div key={groupIndex} className="aircraft-group">
               <div className="aircraft-label">
-                {group.aircraftType} - {group.aircraftId}
+                {group.aircraftType} - {group.aircraftId.split('-')[1]}
               </div>
               <div className="flights-row">
                 {group.flights.map((flight, flightIndex) => {
@@ -489,6 +569,8 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                   if (isHidden) return null; // Не отображаем скрытые рейсы
                   
                   const flightColor = getFlightColor(flight);
+                  // Добавляем особую метку для ночных рейсов
+                  const isOvernightFlight = flight.isOvernightFlight || isNextDay;
                   
                   // Получаем время вылета для отображения в блоке
                   let departureHours, departureMinutes;
@@ -504,15 +586,10 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                     }
                   }
                   
-                  // Для отладки добавим консольный вывод для первых нескольких рейсов
-                  if (flightIndex < 5) {
-                    console.log(`Рендеринг рейса: ${flight.fullFlightNumber}, Позиция: left=${left}px, width=${width}px`);
-                  }
-                  
                   return (
                     <div 
                       key={flightIndex} 
-                      className={`flight-block ${isNextDay ? 'continues' : ''}`}
+                      className={`flight-block ${isOvernightFlight ? 'continues overnight' : ''}`}
                       style={{
                         left: `${left}px`,
                         width: `${width}px`,
@@ -530,6 +607,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                       {viewType === 'daily' && typeof departureHours !== 'undefined' && (
                         <div className="flight-time">
                           {departureHours}:{departureMinutes.toString().padStart(2, '0')}
+                          {isOvernightFlight && ' → +1d'}
                         </div>
                       )}
                     </div>
