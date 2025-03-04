@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { parseSSIMFile, generateSchedule } from '../utils/ssimParser';
+import { parseSSIMFile, generateSchedule } from '../utils/ssimParser/index';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
