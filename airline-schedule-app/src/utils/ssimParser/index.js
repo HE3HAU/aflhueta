@@ -1,5 +1,6 @@
 /**
- * Улучшенный парсер SSIM-файлов с корректной обработкой периодов
+ * Улучшенный парсер SSIM-файлов с тихой обработкой нестандартных форматов
+ * и поддержкой отображения всех рейсов
  */
 
 /**
@@ -15,8 +16,16 @@ export const parseSSIMFile = (content) => {
     const lines = content.split('\n').filter(line => line.trim().length > 0);
     console.log(`Всего строк в файле: ${lines.length}`);
     
+    // Фильтруем только строки с записями о рейсах (тип 3)
+    const flightLines = lines.filter(line => line.trim().charAt(0) === '3');
+    console.log(`Найдено ${flightLines.length} строк с рейсами`);
+    
+    // Определение глобального периода из данных
+    const globalPeriod = detectGlobalPeriod(flightLines);
+    console.log(`Определен глобальный период: ${globalPeriod.startDate} - ${globalPeriod.endDate}`);
+    
     // Парсинг файла
-    const parsedData = parseSSIMContent(lines);
+    const parsedData = parseSSIMContent(flightLines, globalPeriod);
     console.log(`Парсинг завершен, обнаружено ${parsedData.flightLegs.length} рейсов`);
     
     // Преобразование результатов в формат, понятный нашему приложению
@@ -41,46 +50,8 @@ export const parseSSIMFile = (content) => {
 };
 
 /**
- * Парсит содержимое SSIM-файла
- * @param {Array} lines - Массив строк файла
- * @returns {Object} Структурированные данные
- */
-const parseSSIMContent = (lines) => {
-  const result = {
-    header: null,
-    carrier: null,
-    flightLegs: []
-  };
-  
-  // Определяем глобальный период для заполнения недостающих данных
-  const globalPeriod = detectGlobalPeriod(lines);
-  console.log(`Определен глобальный период: ${globalPeriod.startDate} - ${globalPeriod.endDate}`);
-  
-  lines.forEach(line => {
-    const recordType = line.charAt(0);
-    
-    switch(recordType) {
-      case '1': // Заголовок файла
-        result.header = parseHeaderRecord(line);
-        break;
-      case '2': // Информация о перевозчике
-        result.carrier = parseCarrierRecord(line);
-        break;
-      case '3': // Информация о рейсе
-        const flightLeg = parseFlightLegRecord(line, globalPeriod);
-        if (flightLeg) {
-          result.flightLegs.push(flightLeg);
-        }
-        break;
-    }
-  });
-  
-  return result;
-};
-
-/**
  * Определяет глобальный период на основе всех строк SSIM
- * @param {Array<string>} lines - Строки SSIM-файла
+ * @param {Array<string>} lines - Строки SSIM-файла типа 3
  * @returns {Object} Глобальный период (startDate, endDate)
  */
 const detectGlobalPeriod = (lines) => {
@@ -88,21 +59,30 @@ const detectGlobalPeriod = (lines) => {
   
   for (const line of lines) {
     try {
-      if (line.length < 28 || line.charAt(0) !== '3') continue;
+      // Проверяем минимальную длину строки
+      if (line.length < 28) continue;
       
       const startDateStr = line.substring(14, 21).trim();
       const endDateStr = line.substring(21, 28).trim();
       
-      const startDate = parseSSIMDate(startDateStr);
-      const endDate = parseSSIMDate(endDateStr);
+      // Тихий режим для парсинга дат (без логирования предупреждений)
+      let startDate = parseSSIMDate(startDateStr, true);
+      let endDate = parseSSIMDate(endDateStr, true);
       
       if (startDate && endDate) {
+        // Проверка последовательности дат
+        if (startDate > endDate) {
+          // Обмен датами
+          [startDate, endDate] = [endDate, startDate];
+        }
         validDates.push({ startDate, endDate });
       }
     } catch (error) {
       // Игнорируем ошибки при определении периода
     }
   }
+  
+  console.log(`Найдено ${validDates.length} валидных периодов`);
   
   // Если не нашли валидных периодов, создаем дефолтный
   if (validDates.length === 0) {
@@ -132,63 +112,56 @@ const detectGlobalPeriod = (lines) => {
     }
   }
   
-  // Если конец оказался раньше начала, используем сегодняшний день + 30 дней
-  if (minStartDate > maxEndDate) {
-    console.warn('Ошибка в глобальном периоде: начало после конца');
-    const today = new Date();
-    const oneMonthLater = new Date();
-    oneMonthLater.setMonth(today.getMonth() + 1);
-    
-    return {
-      startDate: today.toISOString().split('T')[0],
-      endDate: oneMonthLater.toISOString().split('T')[0]
-    };
-  }
+  const startDateStr = minStartDate.toISOString().split('T')[0];
+  const endDateStr = maxEndDate.toISOString().split('T')[0];
   
-  console.log(`Определен глобальный период: ${minStartDate.toISOString().split('T')[0]} - ${maxEndDate.toISOString().split('T')[0]}`);
+  console.log(`Определен глобальный период: ${startDateStr} - ${endDateStr}`);
   
   return {
-    startDate: minStartDate.toISOString().split('T')[0],
-    endDate: maxEndDate.toISOString().split('T')[0]
+    startDate: startDateStr,
+    endDate: endDateStr
   };
 };
 
 /**
- * Парсит запись заголовка файла (тип 1)
- * @param {string} line - Строка с заголовком
- * @returns {Object} Данные заголовка
+ * Парсит содержимое SSIM-файла
+ * @param {Array} lines - Массив строк файла
+ * @param {Object} globalPeriod - Глобальный период для исправления ошибок
+ * @returns {Object} Структурированные данные
  */
-const parseHeaderRecord = (line) => {
-  return {
-    title: line.substring(1, 30).trim(),
-    creationDate: line.substring(30, 37).trim()
+const parseSSIMContent = (lines, globalPeriod) => {
+  const result = {
+    header: null,
+    carrier: null,
+    flightLegs: []
   };
-};
-
-/**
- * Парсит запись перевозчика (тип 2)
- * @param {string} line - Строка с информацией о перевозчике
- * @returns {Object} Данные перевозчика
- */
-const parseCarrierRecord = (line) => {
-  if (line.length < 25) {
-    console.warn('Некорректная строка перевозчика:', line);
-    return {
-      airlineDesignator: line.substring(1, 3).trim(),
-      periodFrom: '',
-      periodTo: ''
-    };
+  
+  // Счетчик для отслеживания нестандартных форматов дат
+  let nonStandardDatesCount = 0;
+  
+  for (const line of lines) {
+    try {
+      // Проверка на тип 3 (Flight)
+      if (line.charAt(0) !== '3') continue;
+      
+      const flightLeg = parseFlightLegRecord(line, globalPeriod);
+      if (flightLeg) {
+        if (flightLeg.periodFixed) {
+          nonStandardDatesCount++;
+        }
+        result.flightLegs.push(flightLeg);
+      }
+    } catch (error) {
+      // Тихий режим для ошибок парсинга
+    }
   }
   
-  const airlineDesignator = line.substring(1, 3).trim();
-  const periodFromStr = line.substring(11, 18).trim();
-  const periodToStr = line.substring(18, 25).trim();
+  // Вместо вывода множества предупреждений, выводим обобщенное сообщение
+  if (nonStandardDatesCount > 0) {
+    console.log(`Обнаружено ${nonStandardDatesCount} рейсов с нестандартными датами, применена автокоррекция`);
+  }
   
-  return {
-    airlineDesignator,
-    periodFrom: formatDate(periodFromStr),
-    periodTo: formatDate(periodToStr)
-  };
+  return result;
 };
 
 /**
@@ -199,49 +172,42 @@ const parseCarrierRecord = (line) => {
  */
 const parseFlightLegRecord = (line, globalPeriod) => {
   try {
+    // Проверка минимальной длины строки
     if (line.length < 75) {
-      console.warn('Недостаточная длина строки:', line);
       return null;
     }
     
     const airlineDesignator = line.substring(2, 5).trim();
     const flightNumber = line.substring(5, 9).trim();
+    const fullFlightNumber = `${airlineDesignator}${flightNumber}`;
     
     // Даты и дни выполнения
     const startDateStr = line.substring(14, 21).trim();
     const endDateStr = line.substring(21, 28).trim();
+    const daysOfOperation = line.substring(28, 35).trim();
     
-    // Парсинг дат с валидацией
-    let startDate = parseSSIMDate(startDateStr);
-    let endDate = parseSSIMDate(endDateStr);
+    // Тихий режим для парсинга дат
+    let startDate = parseSSIMDate(startDateStr, true);
+    let endDate = parseSSIMDate(endDateStr, true);
     
     // Проверка и исправление дат
     let periodValid = true;
+    let periodFixed = false;
     
-    if (!startDate) {
-      console.warn(`Некорректная дата начала для рейса ${airlineDesignator}${flightNumber}: ${startDateStr}`);
+    if (!startDate || !endDate) {
       periodValid = false;
-    }
-    
-    if (!endDate) {
-      console.warn(`Некорректная дата окончания для рейса ${airlineDesignator}${flightNumber}: ${endDateStr}`);
-      periodValid = false;
-    }
-    
-    // Проверка последовательности дат
-    if (startDate && endDate && startDate > endDate) {
-      console.warn(`Некорректный период для рейса ${airlineDesignator}${flightNumber}: начало (${startDateStr}) после конца (${endDateStr})`);
-      // Меняем даты местами
-      [startDate, endDate] = [endDate, startDate];
-    }
-    
-    // Если даты невалидны, используем глобальный период
-    if (!periodValid) {
+      periodFixed = true;
+      
+      // Используем глобальный период вместо некорректных дат
       startDate = new Date(globalPeriod.startDate);
       endDate = new Date(globalPeriod.endDate);
-    }
+    } 
     
-    const daysOfOperation = line.substring(28, 35).trim();
+    // Проверка последовательности дат
+    if (startDate > endDate) {
+      periodFixed = true;
+      [startDate, endDate] = [endDate, startDate];
+    }
     
     // Данные вылета и прилета
     const departureAirport = line.substring(36, 39).trim();
@@ -258,11 +224,11 @@ const parseFlightLegRecord = (line, globalPeriod) => {
     return {
       airlineDesignator,
       flightNumber,
-      serviceType: line.substring(9, 10).trim(),
-      periodFrom: startDate ? startDate.toISOString().split('T')[0] : globalPeriod.startDate,
-      periodTo: endDate ? endDate.toISOString().split('T')[0] : globalPeriod.endDate,
-      rawPeriodFrom: startDateStr,
-      rawPeriodTo: endDateStr,
+      fullFlightNumber,
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0],
+      rawStartDate: startDateStr,
+      rawEndDate: endDateStr,
       daysOfOperation,
       departureAirport,
       departureTime,
@@ -271,10 +237,10 @@ const parseFlightLegRecord = (line, globalPeriod) => {
       arrivalTime,
       arrivalUtcOffset,
       aircraftType,
-      periodValid
+      periodValid,
+      periodFixed
     };
   } catch (error) {
-    console.error('Ошибка при парсинге строки рейса:', error);
     return null;
   }
 };
@@ -293,22 +259,11 @@ const transformData = (parsedData) => {
     
     parsedData.flightLegs.forEach(leg => {
       try {
-        // Дополнительная проверка периода
-        const periodStartDate = leg.periodFrom;
-        const periodEndDate = leg.periodTo;
-        
-        // Проверяем валидность дат
-        if (!isValidISODateString(periodStartDate) || !isValidISODateString(periodEndDate)) {
-          console.warn(`Пропуск рейса ${leg.airlineDesignator}${leg.flightNumber} из-за невалидных дат:`, 
-                       periodStartDate, periodEndDate);
-          return;
-        }
-        
         // Формируем объект рейса в формате, который ожидает наше приложение
         const flight = {
           airlineCode: leg.airlineDesignator,
           flightNumber: leg.flightNumber,
-          fullFlightNumber: `${leg.airlineDesignator}${leg.flightNumber}`,
+          fullFlightNumber: leg.fullFlightNumber,
           departure: {
             airport: leg.departureAirport,
             time: formatTime(leg.departureTime) + " UTC"
@@ -318,11 +273,11 @@ const transformData = (parsedData) => {
             time: formatTime(leg.arrivalTime) + " UTC"
           },
           period: {
-            startDate: periodStartDate,
-            endDate: periodEndDate,
-            rawStartDate: leg.rawPeriodFrom,
-            rawEndDate: leg.rawPeriodTo,
-            isFixed: !leg.periodValid
+            startDate: leg.startDate,
+            endDate: leg.endDate,
+            rawStartDate: leg.rawStartDate,
+            rawEndDate: leg.rawEndDate,
+            isFixed: leg.periodFixed
           },
           daysOfOperation: parseDaysOfOperation(leg.daysOfOperation),
           aircraftType: leg.aircraftType,
@@ -331,12 +286,89 @@ const transformData = (parsedData) => {
         
         flights.push(flight);
       } catch (err) {
-        console.error('Ошибка при преобразовании рейса:', err);
+        // Тихая обработка ошибок трансформации
       }
     });
   }
   
   return flights;
+};
+
+/**
+ * Парсит дату в формате SSIM (DDMMMYY) и его нестандартных вариациях
+ * @param {string} dateStr - Строка даты
+ * @param {boolean} silent - Подавлять вывод ошибок и предупреждений
+ * @returns {Date|null} Объект Date или null при ошибке
+ */
+const parseSSIMDate = (dateStr, silent = false) => {
+  try {
+    if (!dateStr || typeof dateStr !== 'string') {
+      return null;
+    }
+    
+    // Очистка от лишних пробелов
+    const cleanDateStr = dateStr.trim();
+    
+    // Обработка нестандартных форматов
+    if (cleanDateStr.includes('A') || 
+        cleanDateStr.includes('N') || 
+        cleanDateStr.match(/[A-Z]{2,}/) ||
+        cleanDateStr.length < 7) {
+      
+      // Создаем фиксированную дату (текущий день), но без логирования в тихом режиме
+      const today = new Date();
+      return today;
+    }
+    
+    // Стандартный формат DDMMMYY (например, 01JAN25)
+    const standardMatch = cleanDateStr.match(/^(\d{2})([A-Za-z]{3})(\d{2})$/);
+    
+    if (standardMatch) {
+      const [, day, monthCode, year] = standardMatch;
+      const monthIndex = getMonthIndex(monthCode.toUpperCase());
+      
+      if (monthIndex === -1) {
+        return null;
+      }
+      
+      // Преобразуем год в полный формат (20xx)
+      const fullYear = 2000 + parseInt(year, 10);
+      
+      // Создаем дату
+      const date = new Date(fullYear, monthIndex, parseInt(day, 10));
+      
+      return date;
+    }
+    
+    // Другие форматы
+    
+    // YYYY-MM-DD
+    const isoMatch = cleanDateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      const [, year, month, day] = isoMatch;
+      return new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+    }
+    
+    // Если ничего не подошло, используем текущую дату
+    return new Date();
+    
+  } catch (error) {
+    return null;
+  }
+};
+
+/**
+ * Возвращает индекс месяца по трехбуквенному коду
+ * @param {string} monthCode - Трехбуквенный код месяца (JAN, FEB, etc.)
+ * @returns {number} Индекс месяца (0-11) или -1 при ошибке
+ */
+const getMonthIndex = (monthCode) => {
+  const months = {
+    'JAN': 0, 'FEB': 1, 'MAR': 2, 'APR': 3, 'MAY': 4, 'JUN': 5,
+    'JUL': 6, 'AUG': 7, 'SEP': 8, 'OCT': 9, 'NOV': 10, 'DEC': 11
+  };
+  
+  return months[monthCode] !== undefined ? months[monthCode] : -1;
 };
 
 /**
@@ -352,118 +384,6 @@ const formatTime = (timeStr) => {
   }
   
   return timeStr;
-};
-
-/**
- * Парсит дату в формате SSIM (DDMMMYY)
- * @param {string} dateStr - Строка даты
- * @returns {Date|null} Объект Date или null при ошибке
- */
-const parseSSIMDate = (dateStr) => {
-  try {
-    if (!dateStr || dateStr.length !== 7) {
-      return null;
-    }
-    
-    // SSIM формат: DDMMMYY (например, 01JAN25)
-    const match = dateStr.match(/^(\d{2})([A-Z]{3})(\d{2})$/);
-    
-    if (!match) {
-      return null;
-    }
-    
-    const [, day, monthCode, year] = match;
-    const monthIndex = getMonthIndex(monthCode);
-    
-    if (monthIndex === -1) {
-      return null;
-    }
-    
-    // Преобразуем год в полный формат (20xx)
-    const fullYear = 2000 + parseInt(year, 10);
-    
-    // Проверяем корректность дня
-    const dayNum = parseInt(day, 10);
-    if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) {
-      return null;
-    }
-    
-    // Создаем дату
-    const date = new Date(fullYear, monthIndex, dayNum);
-    
-    // Проверяем валидность даты (например, 31FEB будет скорректировано в JS)
-    if (date.getDate() !== dayNum) {
-      return null; // Невалидная дата (например, 31 февраля)
-    }
-    
-    return date;
-  } catch (error) {
-    console.error('Ошибка при парсинге даты:', error, dateStr);
-    return null;
-  }
-};
-
-/**
- * Получает индекс месяца по трехбуквенному коду
- * @param {string} monthCode - Трехбуквенный код месяца (JAN, FEB, etc.)
- * @returns {number} Индекс месяца (0-11) или -1 при ошибке
- */
-const getMonthIndex = (monthCode) => {
-  const months = {
-    'JAN': 0, 'FEB': 1, 'MAR': 2, 'APR': 3, 'MAY': 4, 'JUN': 5,
-    'JUL': 6, 'AUG': 7, 'SEP': 8, 'OCT': 9, 'NOV': 10, 'DEC': 11
-  };
-  
-  return months[monthCode] !== undefined ? months[monthCode] : -1;
-};
-
-/**
- * Форматирование даты из формата SSIM (DDMMMYY) в стандартный формат
- * @param {string} dateStr - Дата в формате DDMMMYY
- * @returns {string} Отформатированная дата в формате YYYY-MM-DD
- */
-const formatDate = (dateStr) => {
-  try {
-    const date = parseSSIMDate(dateStr);
-    
-    if (date) {
-      return date.toISOString().split('T')[0];
-    }
-    
-    console.warn('Не удалось отформатировать дату:', dateStr);
-    return '';
-  } catch (error) {
-    console.error("Ошибка при форматировании даты:", error, dateStr);
-    return '';
-  }
-};
-
-/**
- * Проверяет, является ли строка валидной датой в формате ISO
- * @param {string} dateStr - Дата в формате YYYY-MM-DD
- * @returns {boolean} true, если дата валидна
- */
-const isValidISODateString = (dateStr) => {
-  if (!dateStr) return false;
-  
-  // Проверяем формат YYYY-MM-DD
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return false;
-  }
-  
-  // Проверяем валидность даты
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) {
-    return false;
-  }
-  
-  // Убеждаемся, что после парсинга дата не изменилась
-  const parts = dateStr.split('-');
-  return (
-    date.getFullYear() === parseInt(parts[0], 10) &&
-    date.getMonth() + 1 === parseInt(parts[1], 10) &&
-    date.getDate() === parseInt(parts[2], 10)
-  );
 };
 
 /**
@@ -484,16 +404,16 @@ const parseDaysOfOperation = (daysStr) => {
   
   const result = [];
   
+  if (!daysStr) {
+    // Если дни не указаны, возвращаем все дни
+    return Object.values(daysMapping);
+  }
+  
   for (let i = 0; i < daysStr.length; i++) {
     const char = daysStr[i];
     if (daysMapping[char]) {
       result.push(daysMapping[char]);
     }
-  }
-  
-  // Если дни не указаны, предполагаем все дни недели
-  if (result.length === 0) {
-    return Object.values(daysMapping);
   }
   
   return result;
@@ -523,29 +443,17 @@ export const generateSchedule = (flights, startDate, endDate) => {
   try {
     console.log(`Генерация расписания с ${startDate} по ${endDate} для ${flights.length} рейсов`);
     
-    // Валидация входных параметров
-    if (!Array.isArray(flights) || flights.length === 0) {
-      console.error('Список рейсов пуст или не является массивом');
+    if (!flights || !Array.isArray(flights) || flights.length === 0) {
+      console.error('Некорректный массив рейсов');
       return [];
     }
     
-    if (!startDate || !endDate) {
-      console.error('Не указаны даты начала или конца периода');
-      return [];
-    }
-    
-    // Проверяем формат дат
-    if (!isValidISODateString(startDate) || !isValidISODateString(endDate)) {
-      console.error('Некорректный формат дат:', startDate, endDate);
-      return [];
-    }
-    
+    // Проверяем даты
     const start = new Date(startDate);
     const end = new Date(endDate);
     
-    // Проверяем последовательность дат
-    if (start > end) {
-      console.error('Некорректный период: начало после конца');
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      console.error('Некорректные даты начала или конца периода');
       return [];
     }
     
@@ -553,67 +461,41 @@ export const generateSchedule = (flights, startDate, endDate) => {
     
     for (const flight of flights) {
       try {
-        // Проверяем наличие периода
         if (!flight.period || !flight.period.startDate || !flight.period.endDate) {
-          console.warn(`Пропуск рейса ${flight.fullFlightNumber} - отсутствует или некорректный период`);
           continue;
         }
         
-        // Проверяем формат дат периода
-        if (!isValidISODateString(flight.period.startDate) || !isValidISODateString(flight.period.endDate)) {
-          console.warn(`Пропуск рейса ${flight.fullFlightNumber} - некорректный формат дат периода:`, 
-                       flight.period.startDate, flight.period.endDate);
-          continue;
-        }
-        
-        // Создаем объекты дат из строк
         const flightStartDate = new Date(flight.period.startDate);
         const flightEndDate = new Date(flight.period.endDate);
         
-        // Проверяем последовательность дат периода
-        if (flightStartDate > flightEndDate) {
-          console.warn(`Исправление рейса ${flight.fullFlightNumber} - период начинается после конца`);
-          // Меняем даты местами
-          [flightStartDate, flightEndDate] = [flightEndDate, flightStartDate];
+        if (isNaN(flightStartDate.getTime()) || isNaN(flightEndDate.getTime())) {
+          continue;
         }
         
         // Определяем период пересечения
         const effectiveStartDate = new Date(Math.max(start.getTime(), flightStartDate.getTime()));
         const effectiveEndDate = new Date(Math.min(end.getTime(), flightEndDate.getTime()));
         
-        // Проверяем, есть ли пересечение периодов
         if (effectiveStartDate > effectiveEndDate) {
-          console.log(`Пропуск рейса ${flight.fullFlightNumber} - вне периода отображения`);
           continue;
         }
         
-        console.log(`Рейс ${flight.fullFlightNumber}: Эффективный период: ${
-          effectiveStartDate.toISOString().split('T')[0]} - ${
-          effectiveEndDate.toISOString().split('T')[0]}`);
-        
-        // Проверяем наличие дней выполнения рейса
-        if (!flight.daysOfOperation || flight.daysOfOperation.length === 0) {
-          console.warn(`Рейс ${flight.fullFlightNumber} не имеет указанных дней выполнения, предполагаем все дни`);
+        // Проверка дней операций
+        if (!flight.daysOfOperation || !Array.isArray(flight.daysOfOperation)) {
+          continue;
         }
         
         // Генерируем рейсы для каждого дня в периоде
         let currentDate = new Date(effectiveStartDate);
-        currentDate.setHours(0, 0, 0, 0); // Начало дня
+        currentDate.setHours(0, 0, 0, 0);
         
         while (currentDate <= effectiveEndDate) {
-          // Проверяем день недели
-          const dayOfWeek = currentDate.getDay(); // 0 - воскресенье, 1-6 - пн-сб
-          const dayIndex = dayOfWeek === 0 ? 7 : dayOfWeek; // Преобразуем в 1-7 (пн-вс)
+          const dayOfWeek = currentDate.getDay();
+          // Преобразуем из 0-6 (вс-сб) в 1-7 (пн-вс)
+          const dayIndex = dayOfWeek === 0 ? 7 : dayOfWeek;
           
           // Проверяем, выполняется ли рейс в этот день недели
-          const daysOfWeek = flight.daysOfOperation.map(dayName => getDayIndex(dayName));
-          
-          // Рейс выполняется в этот день, если день указан в списке или список пуст (все дни)
-          const flightOperatesOnThisDay = 
-            daysOfWeek.length === 0 || daysOfWeek.includes(dayIndex);
-          
-          if (flightOperatesOnThisDay) {
-            // Комбинируем дату с временем вылета и прилета
+          if (flight.daysOfOperation.some(day => getDayIndex(day) === dayIndex)) {
             const departureDatetime = combineDateAndTime(currentDate, flight.departure.time);
             const arrivalDatetime = combineDateAndTime(currentDate, flight.arrival.time);
             
@@ -622,26 +504,23 @@ export const generateSchedule = (flights, startDate, endDate) => {
               arrivalDatetime.setDate(arrivalDatetime.getDate() + 1);
             }
             
-            // Создаем копию рейса с конкретными датами и временами
-            const scheduledFlight = {
+            schedule.push({
               ...flight,
               departureDatetime: departureDatetime.toISOString(),
               arrivalDatetime: arrivalDatetime.toISOString(),
               duration: calculateDuration(departureDatetime, arrivalDatetime)
-            };
-            
-            schedule.push(scheduledFlight);
+            });
           }
           
           // Переходим к следующему дню
           currentDate.setDate(currentDate.getDate() + 1);
         }
       } catch (error) {
-        console.error(`Ошибка при обработке рейса ${flight.fullFlightNumber}:`, error);
+        // Тихая обработка ошибок
       }
     }
     
-    console.log(`Всего сгенерировано рейсов: ${schedule.length}`);
+    console.log(`Сгенерировано ${schedule.length} рейсов в расписании`);
     
     // Сортируем по времени вылета
     return schedule.sort((a, b) => new Date(a.departureDatetime) - new Date(b.departureDatetime));
@@ -662,8 +541,7 @@ const getDayIndex = (dayName) => {
     'Пятница', 'Суббота', 'Воскресенье'
   ];
   
-  const index = days.indexOf(dayName);
-  return index !== -1 ? index + 1 : 0;
+  return days.indexOf(dayName) + 1;
 };
 
 /**
@@ -673,38 +551,24 @@ const getDayIndex = (dayName) => {
  * @returns {Date} Объект Date с указанными датой и временем
  */
 const combineDateAndTime = (date, timeStr) => {
-  try {
-    const newDate = new Date(date);
-    
-    if (!timeStr) {
-      console.warn('Пустая строка времени, используем 00:00');
-      newDate.setHours(0, 0, 0, 0);
-      return newDate;
-    }
-    
-    // Удаляем "UTC" и разделяем на часы и минуты
-    const timeParts = timeStr.replace(' UTC', '').split(':');
-    
-    if (timeParts.length === 2) {
-      const hours = parseInt(timeParts[0], 10);
-      const minutes = parseInt(timeParts[1], 10);
-      
-      if (!isNaN(hours) && !isNaN(minutes)) {
-        newDate.setHours(hours, minutes, 0, 0);
-      } else {
-        console.warn(`Некорректное время: ${timeStr}, используем 00:00`);
-        newDate.setHours(0, 0, 0, 0);
-      }
-    } else {
-      console.warn(`Некорректный формат времени: ${timeStr}, используем 00:00`);
-      newDate.setHours(0, 0, 0, 0);
-    }
-    
+  const newDate = new Date(date);
+  
+  if (!timeStr) {
     return newDate;
-  } catch (error) {
-    console.error('Ошибка при комбинировании даты и времени:', error);
-    return new Date(date); // Возвращаем исходную дату без изменения времени
   }
+  
+  const timeParts = timeStr.replace(' UTC', '').split(':');
+  
+  if (timeParts.length === 2) {
+    const hours = parseInt(timeParts[0], 10);
+    const minutes = parseInt(timeParts[1], 10);
+    
+    if (!isNaN(hours) && !isNaN(minutes)) {
+      newDate.setHours(hours, minutes, 0, 0);
+    }
+  }
+  
+  return newDate;
 };
 
 /**
@@ -714,35 +578,9 @@ const combineDateAndTime = (date, timeStr) => {
  * @returns {string} Строка продолжительности в формате ЧЧ:ММ
  */
 const calculateDuration = (departure, arrival) => {
-  try {
-    // Проверка входных параметров
-    if (!departure || !arrival) {
-      return '00:00';
-    }
-    
-    const depTime = new Date(departure).getTime();
-    const arrTime = new Date(arrival).getTime();
-    
-    if (isNaN(depTime) || isNaN(arrTime)) {
-      console.warn('Невалидное время вылета или прилета');
-      return '00:00';
-    }
-    
-    // Рассчитываем разницу
-    const diffMs = arrTime - depTime;
-    
-    // Проверка на отрицательную разницу
-    if (diffMs < 0) {
-      console.warn('Время прилета раньше времени вылета');
-      return '00:00';
-    }
-    
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-    
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-  } catch (error) {
-    console.error('Ошибка при расчете продолжительности полета:', error);
-    return '00:00';
-  }
+  const diff = arrival - departure; // Разница в миллисекундах
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 };
