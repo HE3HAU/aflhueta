@@ -1,5 +1,3 @@
-// Обновленный файл src/pages/FlightsPage.js без генерации демо-рейсов
-
 import React, { useState, useEffect } from 'react';
 import FlightGanttChart from '../components/FlightGanttChart/FlightGanttChart';
 import { generateSchedule } from '../utils/ssimParser/index';
@@ -28,111 +26,79 @@ const FlightsPage = () => {
           
           // Проверка наличия рейсов
           if (data.flights && data.flights.length > 0) {
-            // ВАЖНО: Проверяем даты периода для всех рейсов
-            let hasValidDates = true;
-            data.flights.forEach((flight, index) => {
-              if (index < 5) { // Логгируем первые 5 рейсов
-                console.log(`Рейс из хранилища: ${flight.fullFlightNumber}, период: ${flight.period.startDate} - ${flight.period.endDate}`);
-              }
-              
-              // Проверка валидности дат
-              const startDate = new Date(flight.period.startDate);
-              const endDate = new Date(flight.period.endDate);
-              if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-                hasValidDates = false;
-                console.error(`Некорректные даты для рейса ${flight.fullFlightNumber}`);
-              }
-            });
+            // Определяем период на основе минимальной и максимальной даты в данных
+            let earliestDate = null;
+            let latestDate = null;
             
-            if (!hasValidDates) {
-              console.error('Обнаружены рейсы с некорректными датами, возможно потребуется переформатирование');
-            }
-            
-            // ИСПРАВЛЕНИЕ: Используем даты из загруженных рейсов, чтобы определить период
-            // Находим самую раннюю и самую позднюю дату в данных
-            let earliestDate = new Date();
-            let latestDate = new Date();
-            let hasSetDates = false;
-            
-            data.flights.forEach(flight => {
-              try {
-                const flightStartDate = new Date(flight.period.startDate);
-                const flightEndDate = new Date(flight.period.endDate);
+            // Находим минимальные и максимальные даты в рейсах
+            for (const flight of data.flights) {
+              if (flight.period && flight.period.startDate && flight.period.endDate) {
+                const start = new Date(flight.period.startDate);
+                const end = new Date(flight.period.endDate);
                 
-                if (!isNaN(flightStartDate.getTime()) && !isNaN(flightEndDate.getTime())) {
-                  if (!hasSetDates) {
-                    earliestDate = flightStartDate;
-                    latestDate = flightEndDate;
-                    hasSetDates = true;
-                  } else {
-                    if (flightStartDate < earliestDate) earliestDate = flightStartDate;
-                    if (flightEndDate > latestDate) latestDate = flightEndDate;
+                if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+                  if (!earliestDate || start < earliestDate) {
+                    earliestDate = start;
+                  }
+                  
+                  if (!latestDate || end > latestDate) {
+                    latestDate = end;
                   }
                 }
-              } catch (e) {
-                console.error('Ошибка при обработке дат:', e);
               }
-            });
-            
-            // Если не удалось определить даты из рейсов, используем текущую неделю
-            if (!hasSetDates) {
-              const today = new Date();
-              const startOfWeek = new Date(today);
-              startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Понедельник текущей недели
-              
-              const weekEnd = new Date(startOfWeek);
-              weekEnd.setDate(startOfWeek.getDate() + 6); // Воскресенье текущей недели
-              
-              earliestDate = startOfWeek;
-              latestDate = weekEnd;
             }
             
-            console.log(`Определен период данных: ${earliestDate.toISOString().split('T')[0]} - ${latestDate.toISOString().split('T')[0]}`);
+            // Если не удалось определить даты, используем текущий месяц
+            if (!earliestDate || !latestDate) {
+              console.log('Не удалось определить даты из рейсов, используем текущий месяц');
+              const today = new Date();
+              earliestDate = new Date(today.getFullYear(), today.getMonth(), 1);
+              latestDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            }
             
-            // Устанавливаем период для отображения данных
+            // Форматируем даты для функции generateSchedule
+            const formattedStartDate = earliestDate.toISOString().split('T')[0];
+            const formattedEndDate = latestDate.toISOString().split('T')[0];
+            
+            console.log(`Период для генерации расписания: ${formattedStartDate} - ${formattedEndDate}`);
+            
+            // Устанавливаем даты для компонента
             setStartDate(earliestDate);
             setEndDate(latestDate);
             
             // Генерируем расписание на основе данных SSIM
-            try {
-              console.log(`Генерация расписания с ${earliestDate.toISOString().split('T')[0]} по ${latestDate.toISOString().split('T')[0]}`);
+            const schedule = generateSchedule(
+              data.flights, 
+              formattedStartDate, 
+              formattedEndDate
+            );
+            
+            console.log(`Сгенерировано ${schedule.length} рейсов для отображения`);
+            
+            if (schedule.length > 0) {
+              // Выводим в консоль первые несколько рейсов для отладки
+              schedule.slice(0, 5).forEach((flight, index) => {
+                console.log(`Рейс ${index + 1} в расписании: ${flight.fullFlightNumber}, ${flight.departure.airport}-${flight.arrival.airport}, дата: ${new Date(flight.departureDatetime).toISOString()}`);
+              });
               
-              const schedule = generateSchedule(
-                data.flights, 
-                earliestDate.toISOString().split('T')[0], 
-                latestDate.toISOString().split('T')[0]
-              );
-              
-              console.log(`Сгенерировано ${schedule.length} рейсов в расписании`);
-              
-              // Дополнительная проверка сгенерированных данных
-              if (schedule.length > 0) {
-                schedule.slice(0, 5).forEach((flight, index) => {
-                  console.log(`Рейс ${index + 1} в расписании: ${flight.fullFlightNumber}, ${flight.departure.airport}-${flight.arrival.airport}, дата: ${new Date(flight.departureDatetime).toISOString().split('T')[0]}`);
-                });
-                
-                setFlights(schedule);
-                setLoading(false);
-                return; // Успешное завершение загрузки данных
-              } else {
-                console.warn('Не удалось сгенерировать расписание из загруженных данных');
-                setError('Не удалось создать расписание из загруженного файла. Проверьте формат данных.');
-              }
-            } catch (err) {
-              console.error('Ошибка при генерации расписания:', err);
-              setError(`Ошибка при обработке расписания: ${err.message}`);
+              setFlights(schedule);
+              setLoading(false);
+            } else {
+              setError('Не удалось создать расписание из загруженного файла. Проверьте формат данных.');
+              setLoading(false);
             }
           } else {
             setError('Данные рейсов отсутствуют. Пожалуйста, загрузите SSIM-файл на странице загрузки.');
+            setLoading(false);
           }
         } else {
           // Если данных нет в localStorage
           setError('Данные расписания не найдены. Пожалуйста, загрузите SSIM-файл на странице загрузки.');
+          setLoading(false);
         }
       } catch (err) {
         console.error('Ошибка при загрузке данных:', err);
         setError(`Произошла ошибка при загрузке расписания рейсов: ${err.message}`);
-      } finally {
         setLoading(false);
       }
     };
