@@ -13,27 +13,65 @@
   padding: 10px 15px;
   background-color: #f5f5f5;
   border-bottom: 1px solid #e0e0e0;
+  flex-wrap: wrap;
 }
 
 .view-selector button {
-  background-color: white;
-  border: 1px solid #ddd;
+  background-color: #f0f0f0; /* Цвет фона неактивной кнопки */
+  border: 1px solid #ccc;
   border-radius: 4px;
   padding: 6px 12px;
   margin-right: 5px;
   cursor: pointer;
   font-size: 14px;
-  transition: all 0.2s;
+  transition: all 0.3s;
+  color: #333; /* Цвет текста неактивной кнопки */
 }
 
 .view-selector button.active {
-  background-color: #1976d2;
+  background-color: #4caf50; /* Зеленый цвет для активной кнопки */
   color: white;
-  border-color: #1976d2;
+  border-color: #388e3c;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .view-selector button:hover:not(.active) {
-  background-color: #f0f0f0;
+  background-color: #e8e8e8;
+  border-color: #aaa;
+}
+
+/* Стили для календаря и контроля дат */
+.date-controls {
+  display: flex;
+  align-items: center;
+  margin: 0 10px;
+}
+
+.date-picker {
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  margin-right: 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.today-button {
+  background-color: #2196f3; /* Синий цвет для кнопки Сегодня */
+  border: 1px solid #1976d2;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+  color: white; /* Белый текст */
+  margin-left: 5px;
+  font-weight: 500;
+}
+
+.today-button:hover {
+  background-color: #1976d2; /* Темнее при наведении */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .date-navigator {
@@ -42,21 +80,26 @@
 }
 
 .date-navigator button {
-  background-color: white;
-  border: 1px solid #ddd;
+  background-color: #2196f3; /* Оранжевый цвет для стрелок */
+  border: 1px solid #1976d2;
   border-radius: 50%;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   margin: 0 5px;
+  color: white;
+  transition: all 0.3s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .date-navigator button:hover {
-  background-color: #f0f0f0;
+  background-color: #1976d2; /* Темнее при наведении */
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transform: scale(1.05);
 }
 
 .date-navigator span {
@@ -226,12 +269,100 @@
     align-items: flex-start;
   }
   
-  .view-selector {
+  .view-selector, .date-controls, .date-navigator {
     margin-bottom: 10px;
+    width: 100%;
+  }
+  
+  .date-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .date-picker {
+    width: 100%;
+    margin-bottom: 5px;
   }
   
   .aircraft-label {
     width: 100px;
     font-size: 12px;
+  }
+}
+/* Стили для выбора диапазона дат */
+.date-range-controls {
+  display: flex;
+  align-items: center;
+  margin: 0 10px;
+  gap: 10px;
+}
+
+.date-picker-group {
+  display: flex;
+  align-items: center;
+}
+
+.date-picker-group label {
+  margin-right: 5px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.date-picker {
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.today-button {
+  background-color: #2196f3; /* Синий цвет для кнопки Сегодня */
+  border: 1px solid #1976d2;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+  color: white; /* Белый текст */
+  margin-left: 5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.today-button:hover {
+  background-color: #1976d2; /* Темнее при наведении */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Адаптивный дизайн */
+@media (max-width: 768px) {
+  .chart-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .view-selector, .date-range-controls, .date-navigator {
+    margin-bottom: 10px;
+    width: 100%;
+  }
+  
+  .date-range-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .date-picker-group {
+    width: 100%;
+    margin-bottom: 5px;
+  }
+  
+  .date-picker {
+    flex-grow: 1;
+  }
+  
+  .today-button {
+    width: 100%;
+    margin-left: 0;
   }
 }
