@@ -8,6 +8,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
   const [viewType, setViewType] = useState('weekly');
   const [currentStartDate, setCurrentStartDate] = useState(new Date());
   const [currentEndDate, setCurrentEndDate] = useState(new Date());
+  const [customMode, setCustomMode] = useState(false);
   
   // Инициализация дат при первом рендере
   useEffect(() => {
@@ -88,29 +89,12 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     
     // Настройки для разных типов представления
     let incrementDays, slotWidth;
-    switch(type) {
-      case 'daily':
-        incrementDays = 0;
-        slotWidth = 60; // в пикселях, для почасового отображения
-        break;
-      case 'weekly':
-        incrementDays = 1;
-        slotWidth = 180; // в пикселях, для дневного отображения
-        break;
-      case 'monthly':
-        incrementDays = 1;
-        slotWidth = 35; // в пикселях, компактное дневное отображение
-        break;
-      default:
-        incrementDays = 1;
-        slotWidth = 180;
-    }
     
-    // Создание временных интервалов
-    let current = new Date(startDateTime);
-    current.setHours(0, 0, 0, 0);
-    
-    if (type === 'daily') {
+    if (type === 'daily' || start.toDateString() === end.toDateString()) {
+      // Если выбран режим дня или если начальная и конечная дата совпадают
+      incrementDays = 0;
+      slotWidth = 60; // в пикселях, для почасового отображения
+      
       // Для суточного представления создаем 24 часовых слота
       for (let hour = 0; hour < 24; hour++) {
         slots.push({
@@ -121,11 +105,18 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       // Добавляем метку даты
       labels.push({
-        date: formatDate(current),
-        dayOfWeek: formatDayOfWeek(current)
+        date: formatDate(startDateTime),
+        dayOfWeek: formatDayOfWeek(startDateTime)
       });
     } else {
-      // Для недельного и месячного представления
+      // Для диапазона дат или недельного представления
+      incrementDays = 1;
+      slotWidth = 180; // в пикселях, для дневного отображения
+      
+      let current = new Date(startDateTime);
+      current.setHours(0, 0, 0, 0);
+      
+      // Для недельного представления и произвольного диапазона
       while (current <= endDateTime) {
         slots.push({
           time: formatDate(current),
@@ -151,6 +142,21 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
   };
   
+  // Форматирование даты для ввода в input[type="date"]
+  const formatDateForInput = (date) => {
+    const d = new Date(date);
+    let month = '' + (d.getMonth() + 1);
+    let day = '' + d.getDate();
+    const year = d.getFullYear();
+
+    if (month.length < 2) 
+      month = '0' + month;
+    if (day.length < 2) 
+      day = '0' + day;
+
+    return [year, month, day].join('-');
+  };
+  
   // Форматирование дня недели
   const formatDayOfWeek = (date) => {
     const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
@@ -163,29 +169,126 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     return `${start.toLocaleDateString('ru-RU', options)} - ${end.toLocaleDateString('ru-RU', options)}`;
   };
   
+  // Обработка выбора начальной даты диапазона
+  const handleStartDateChange = (e) => {
+    const selectedDate = new Date(e.target.value);
+    
+    // Если выбранная начальная дата больше текущей конечной, устанавливаем конечную равной начальной
+    if (selectedDate > currentEndDate) {
+      setCurrentEndDate(selectedDate);
+    }
+    
+    setCurrentStartDate(selectedDate);
+    setCustomMode(true);
+  };
+  
+  // Обработка выбора конечной даты диапазона
+  const handleEndDateChange = (e) => {
+    const selectedDate = new Date(e.target.value);
+    
+    // Если выбранная конечная дата меньше текущей начальной, устанавливаем начальную равной конечной
+    if (selectedDate < currentStartDate) {
+      setCurrentStartDate(selectedDate);
+    }
+    
+    setCurrentEndDate(selectedDate);
+    setCustomMode(true);
+  };
+  
+  // Обработка выбора даты через календарь (для режима дня)
+  const handleDateChange = (e) => {
+    const selectedDate = new Date(e.target.value);
+    
+    if (viewType === 'daily') {
+      // Если в режиме дня - устанавливаем выбранную дату
+      setCurrentStartDate(selectedDate);
+      setCurrentEndDate(selectedDate);
+    } else if (viewType === 'weekly') {
+      // Если в режиме недели - устанавливаем неделю, в которой находится выбранная дата
+      const dayOfWeek = selectedDate.getDay(); // 0 - воскресенье, 1 - понедельник и т.д.
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Сколько дней нужно прибавить до ближайшего понедельника
+      
+      const startOfWeek = new Date(selectedDate);
+      startOfWeek.setDate(selectedDate.getDate() + mondayOffset);
+      
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      
+      setCurrentStartDate(startOfWeek);
+      setCurrentEndDate(endOfWeek);
+    }
+    
+    setCustomMode(false);
+  };
+  
   // Навигация по датам
   const handleNavigate = (direction) => {
-    const difference = currentEndDate - currentStartDate;
-    const days = Math.ceil(difference / (1000 * 60 * 60 * 24)) + 1;
-    
     const newStartDate = new Date(currentStartDate);
     const newEndDate = new Date(currentEndDate);
     
-    if (direction === 'prev') {
-      newStartDate.setDate(newStartDate.getDate() - days);
-      newEndDate.setDate(newEndDate.getDate() - days);
+    if (customMode) {
+      // Для произвольного диапазона
+      const diffDays = Math.round((currentEndDate - currentStartDate) / (1000 * 60 * 60 * 24)) + 1;
+      const dayOffset = direction === 'prev' ? -diffDays : diffDays;
+      
+      newStartDate.setDate(newStartDate.getDate() + dayOffset);
+      newEndDate.setDate(newEndDate.getDate() + dayOffset);
+    } else if (viewType === 'daily') {
+      // Для суточного представления перемещаемся на один день
+      const dayOffset = direction === 'prev' ? -1 : 1;
+      newStartDate.setDate(newStartDate.getDate() + dayOffset);
+      newEndDate.setDate(newEndDate.getDate() + dayOffset);
     } else {
-      newStartDate.setDate(newStartDate.getDate() + days);
-      newEndDate.setDate(newEndDate.getDate() + days);
+      // Для недельного представления перемещаемся на неделю
+      const dayOffset = direction === 'prev' ? -7 : 7;
+      newStartDate.setDate(newStartDate.getDate() + dayOffset);
+      newEndDate.setDate(newEndDate.getDate() + dayOffset);
     }
     
     setCurrentStartDate(newStartDate);
     setCurrentEndDate(newEndDate);
   };
   
+  // Переход к сегодняшнему дню
+  const handleGoToToday = () => {
+    const today = new Date();
+    
+    if (customMode) {
+      // Сохраняем текущую длину диапазона
+      const diffDays = Math.round((currentEndDate - currentStartDate) / (1000 * 60 * 60 * 24));
+      
+      setCurrentStartDate(today);
+      const newEndDate = new Date(today);
+      newEndDate.setDate(today.getDate() + diffDays);
+      setCurrentEndDate(newEndDate);
+    } else if (viewType === 'daily') {
+      setCurrentStartDate(today);
+      setCurrentEndDate(today);
+    } else {
+      // Находим понедельник текущей недели
+      const dayOfWeek = today.getDay(); // 0 - воскресенье, 1 - понедельник и т.д.
+      const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Сколько дней нужно прибавить до ближайшего понедельника
+      
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() + mondayOffset);
+      
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      
+      setCurrentStartDate(startOfWeek);
+      setCurrentEndDate(endOfWeek);
+    }
+  };
+  
+  // Применение выбора диапазона
+  const handleApplyRange = () => {
+    setCustomMode(true);
+  };
+  
   // Изменение типа представления
   const changeViewType = (type) => {
     setViewType(type);
+    setCustomMode(false);
     console.log('Изменение типа представления на:', type);
     
     // Корректируем период в зависимости от типа представления
@@ -198,14 +301,14 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
         newEndDate = new Date(today);
         break;
       case 'weekly':
+        const dayOfWeek = today.getDay(); // 0 - воскресенье, 1 - понедельник и т.д.
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Сколько дней нужно прибавить до ближайшего понедельника
+        
         newStartDate = new Date(today);
-        newStartDate.setDate(today.getDate() - today.getDay() + 1); // Понедельник текущей недели
+        newStartDate.setDate(today.getDate() + mondayOffset);
+        
         newEndDate = new Date(newStartDate);
-        newEndDate.setDate(newStartDate.getDate() + 6); // Воскресенье текущей недели
-        break;
-      case 'monthly':
-        newStartDate = new Date(today.getFullYear(), today.getMonth(), 1);
-        newEndDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        newEndDate.setDate(newStartDate.getDate() + 6);
         break;
       default:
         return;
@@ -358,7 +461,11 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       return { left: 0, width: 0, isHidden: true };
     }
     
-    if (viewType === 'daily') {
+    // Проверяем, отображаем ли мы один день
+    const isSingleDay = timeSlots.length === 24 || 
+                        (currentStartDate.toDateString() === currentEndDate.toDateString());
+                        
+    if (isSingleDay) {
       // Для суточного представления
       const selectedDate = new Date(currentStartDate);
       selectedDate.setHours(0, 0, 0, 0);
@@ -399,7 +506,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       return { left, width, isNextDay };
     } else {
-      // Для недельного и месячного представления
+      // Для недельного представления или диапазона дат
       // Определяем день вылета относительно начальной даты
       const startOfPeriod = new Date(currentStartDate);
       startOfPeriod.setHours(0, 0, 0, 0);
@@ -425,7 +532,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       // Обрезаем продолжительность, если она выходит за пределы отображаемого периода
       const visibleDays = Math.min(durationDays, timeSlots.length - diffDays);
       
-      const slotWidth = viewType === 'weekly' ? 180 : 35; // ширина 1 дня в пикселях
+      const slotWidth = 180; // ширина 1 дня в пикселях для недельного представления и произвольного диапазона
       
       const left = diffDays * slotWidth;
       const width = visibleDays * slotWidth;
@@ -467,24 +574,10 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     return result;
   };
   
-  // Получаем цвет для рейса
-  const getFlightColor = (flight) => {
-    // Генерируем цвет на основе номера рейса или аэропорта назначения
-    const seed = flight.fullFlightNumber || flight.arrival?.airport || 'default';
-    let hash = 0;
-    
-    for (let i = 0; i < seed.length; i++) {
-      hash = seed.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    
-    // Выбираем из заранее определенных цветов
-    const colors = [
-      '#4285F4', '#EA4335', '#FBBC05', '#34A853', // Google colors
-      '#039BE5', '#7B1FA2', '#C2185B', '#00897B', // Material colors
-      '#FFA000', '#C62828', '#2E7D32', '#283593'  // Deep colors
-    ];
-    
-    return colors[Math.abs(hash) % colors.length];
+  // Получаем цвет для рейса (всегда светло-голубой)
+  const getFlightColor = () => {
+    // Светло-голубой цвет для всех рейсов
+    return '#64B5F6'; // Светло-голубой цвет (Material Design Light Blue 300)
   };
   
   // Обработка клика по рейсу
@@ -498,24 +591,49 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       <div className="chart-controls">
         <div className="view-selector">
           <button 
-            className={viewType === 'daily' ? 'active' : ''} 
+            className={viewType === 'daily' && !customMode ? 'active' : ''} 
             onClick={() => changeViewType('daily')}
           >
             День
           </button>
           <button 
-            className={viewType === 'weekly' ? 'active' : ''} 
+            className={viewType === 'weekly' && !customMode ? 'active' : ''} 
             onClick={() => changeViewType('weekly')}
           >
             Неделя
           </button>
           <button 
-            className={viewType === 'monthly' ? 'active' : ''} 
-            onClick={() => changeViewType('monthly')}
+            className={customMode ? 'active' : ''} 
+            onClick={handleApplyRange}
           >
-            Месяц
+            Произвольный диапазон
           </button>
         </div>
+        
+        <div className="date-range-controls">
+          <div className="date-picker-group">
+            <label>С:</label>
+            <input 
+              type="date" 
+              value={formatDateForInput(currentStartDate)} 
+              onChange={handleStartDateChange} 
+              className="date-picker"
+            />
+          </div>
+          <div className="date-picker-group">
+            <label>По:</label>
+            <input 
+              type="date" 
+              value={formatDateForInput(currentEndDate)} 
+              onChange={handleEndDateChange} 
+              className="date-picker"
+            />
+          </div>
+          <button onClick={handleGoToToday} className="today-button">
+            Сегодня
+          </button>
+        </div>
+        
         <div className="date-navigator">
           <button onClick={() => handleNavigate('prev')}>❮</button>
           <span>{formatDateRange(currentStartDate, currentEndDate)}</span>
@@ -529,10 +647,10 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
           <div className="time-scale-labels">
             {dateLabels.map((label, index) => (
               <div key={index} className="date-label" style={{ 
-                left: `${index * (viewType === 'weekly' ? 180 : (viewType === 'daily' ? 0 : 35))}px`,
-                width: viewType === 'daily' ? '100%' : 'auto'
+                left: `${index * ((timeSlots.length === 24) ? 0 : 180)}px`,
+                width: (timeSlots.length === 24) ? '100%' : 'auto'
               }}>
-                {viewType === 'daily' ? (
+                {(timeSlots.length === 24) ? (
                   <span>{label.date} ({label.dayOfWeek})</span>
                 ) : (
                   <>
@@ -604,7 +722,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                       <div className="flight-route">
                         {flight.departure.airport} - {flight.arrival.airport}
                       </div>
-                      {viewType === 'daily' && typeof departureHours !== 'undefined' && (
+                      {(timeSlots.length === 24) && typeof departureHours !== 'undefined' && (
                         <div className="flight-time">
                           {departureHours}:{departureMinutes.toString().padStart(2, '0')}
                           {isOvernightFlight && ' → +1d'}
