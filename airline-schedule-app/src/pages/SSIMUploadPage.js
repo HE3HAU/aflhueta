@@ -7,6 +7,10 @@ const SSIMUploadPage = () => {
   const [parseResult, setParseResult] = useState(null);
   const [error, setError] = useState('');
   const [previewData, setPreviewData] = useState([]);
+  
+  // Состояние для пагинации
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
 
   // Обработка выбора файла
   const handleFileChange = (e) => {
@@ -15,6 +19,7 @@ const SSIMUploadPage = () => {
     setParseResult(null);
     setError('');
     setPreviewData([]);
+    setCurrentPage(1); // Сбрасываем пагинацию при выборе нового файла
   };
 
   // Обработка загрузки файла
@@ -45,7 +50,8 @@ const SSIMUploadPage = () => {
           });
         }
         
-        setPreviewData(result.flights.slice(0, 10)); // Первые 10 рейсов для предпросмотра
+        // Сохраняем все рейсы для предпросмотра
+        setPreviewData(result.flights);
       } else {
         setError(`Ошибка при парсинге файла: ${result.error}`);
       }
@@ -116,6 +122,34 @@ const SSIMUploadPage = () => {
       return dateStr;
     }
   };
+  
+  // Рассчитываем индексы для текущей страницы
+  const indexOfLastRow = currentPage * rowsPerPage;
+  const indexOfFirstRow = indexOfLastRow - rowsPerPage;
+  
+  // Получаем рейсы для текущей страницы
+  const currentRows = previewData.slice(indexOfFirstRow, indexOfLastRow);
+  
+  // Рассчитываем общее количество страниц
+  const totalPages = Math.ceil(previewData.length / rowsPerPage);
+  
+  // Обработчики пагинации
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+  
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+  
+  const handleChangeRowsPerPage = (e) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setCurrentPage(1); // Сбрасываем на первую страницу при изменении количества строк
+  };
 
   return (
     <div className="ssim-upload-page">
@@ -182,6 +216,31 @@ const SSIMUploadPage = () => {
       {previewData.length > 0 && (
         <div className="preview-section card">
           <h3>Предварительный просмотр данных</h3>
+          
+          <div className="pagination-controls">
+            <div className="rows-per-page">
+              <label>Строк на странице:</label>
+              <select value={rowsPerPage} onChange={handleChangeRowsPerPage}>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+            
+            <div className="page-navigation">
+              <button onClick={handlePrevPage} disabled={currentPage === 1}>
+                &laquo; Пред
+              </button>
+              <span className="page-info">
+                Страница {currentPage} из {totalPages} (всего {previewData.length} рейсов)
+              </span>
+              <button onClick={handleNextPage} disabled={currentPage === totalPages}>
+                След &raquo;
+              </button>
+            </div>
+          </div>
+          
           <div className="table-container">
             <table className="preview-table">
               <thead>
@@ -197,8 +256,8 @@ const SSIMUploadPage = () => {
                 </tr>
               </thead>
               <tbody>
-                {previewData.map((flight, index) => (
-                  <tr key={index}>
+                {currentRows.map((flight, index) => (
+                  <tr key={indexOfFirstRow + index}>
                     <td>{flight.fullFlightNumber}</td>
                     <td>{flight.departure.airport}</td>
                     <td>{flight.arrival.airport}</td>
@@ -298,6 +357,56 @@ const SSIMUploadPage = () => {
           
           .preview-section {
             margin-bottom: 20px;
+          }
+          
+          .pagination-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+          }
+          
+          .rows-per-page {
+            display: flex;
+            align-items: center;
+          }
+          
+          .rows-per-page label {
+            margin-right: 10px;
+            font-size: 14px;
+          }
+          
+          .rows-per-page select {
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+          }
+          
+          .page-navigation {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          
+          .page-navigation button {
+            padding: 5px 10px;
+            background-color: #1976d2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+          }
+          
+          .page-navigation button:disabled {
+            background-color: #b0bec5;
+            cursor: not-allowed;
+          }
+          
+          .page-info {
+            font-size: 14px;
           }
           
           .table-container {
