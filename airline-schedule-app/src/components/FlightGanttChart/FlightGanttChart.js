@@ -95,17 +95,19 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       incrementDays = 0;
       slotWidth = 60; // в пикселях, для почасового отображения
       
-      // Для суточного представления создаем 24 часовых слота
+      // Для суточного представления создаем 24 часовых слота с отображением времени
       for (let hour = 0; hour < 24; hour++) {
+        const timeLabel = `${hour.toString().padStart(2, '0')}:00`;
         slots.push({
-          time: `${hour.toString().padStart(2, '0')}:00`,
-          width: slotWidth
+          time: timeLabel,
+          width: slotWidth,
+          isHour: true
         });
       }
       
-      // Добавляем метку даты
+      // Добавляем метку даты для заголовка с полным форматом даты
       labels.push({
-        date: formatDate(startDateTime),
+        date: formatDateFull(startDateTime),
         dayOfWeek: formatDayOfWeek(startDateTime)
       });
     } else {
@@ -124,8 +126,9 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
           isWeekend: current.getDay() === 0 || current.getDay() === 6
         });
         
+        // Используем улучшенный формат даты для заголовка
         labels.push({
-          date: formatDate(current),
+          date: formatDateFull(current),
           dayOfWeek: formatDayOfWeek(current)
         });
         
@@ -137,9 +140,17 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     setDateLabels(labels);
   };
   
-  // Форматирование даты
+  // Форматирование даты с учетом дня и месяца
   const formatDate = (date) => {
     return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  };
+  
+  // Форматирование даты с учетом дня, месяца и года
+  const formatDateFull = (date) => {
+    return date.toLocaleDateString('ru-RU', { 
+      day: '2-digit', 
+      month: '2-digit'
+    });
   };
   
   // Форматирование даты для ввода в input[type="date"]
@@ -167,6 +178,13 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
   const formatDateRange = (start, end) => {
     const options = { day: 'numeric', month: 'long', year: 'numeric' };
     return `${start.toLocaleDateString('ru-RU', options)} - ${end.toLocaleDateString('ru-RU', options)}`;
+  };
+  
+  // Обработчик для режима одиночной даты
+  const handleSingleDateChange = (e) => {
+    const selectedDate = new Date(e.target.value);
+    setCurrentStartDate(selectedDate);
+    setCurrentEndDate(selectedDate);
   };
   
   // Обработка выбора начальной даты диапазона
@@ -472,9 +490,9 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     }
     
     // Проверяем, отображаем ли мы один день
-    const isSingleDay = timeSlots.length === 24 || 
-                        (currentStartDate.toDateString() === currentEndDate.toDateString());
-                        
+    const isSingleDay = viewType === 'daily' || 
+                       (currentStartDate.toDateString() === currentEndDate.toDateString());
+                       
     if (isSingleDay) {
       // Для суточного представления
       const selectedDate = new Date(currentStartDate);
@@ -488,34 +506,37 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
         return { left: 0, width: 0, isHidden: true };
       }
       
+      // Для более точного позиционирования используем минуты
       const startHour = departureTime.getHours();
-      const startMinutes = departureTime.getMinutes() / 60; // доля часа
+      const startMinutes = departureTime.getMinutes();
       
       const endHour = arrivalTime.getHours();
-      const endMinutes = arrivalTime.getMinutes() / 60; // доля часа
+      const endMinutes = arrivalTime.getMinutes();
       
       // Для рейсов, которые переходят на следующий день
       const isNextDay = arrivalTime.getDate() > departureTime.getDate() ||
         arrivalTime.getMonth() > departureTime.getMonth() ||
         arrivalTime.getFullYear() > departureTime.getFullYear();
       
-      const slotWidth = 60; // ширина 1 часа в пикселях
+      // Используем точные пиксели для часов
+      const hourWidth = 60; // 60px на час
+      
+      // Вычисляем смещение с учетом колонки с метками ВС
+      const totalStartMinutes = startHour * 60 + startMinutes;
+      const totalEndMinutes = isNextDay ? 24 * 60 : (endHour * 60 + endMinutes);
       
       // Добавляем смещение для учета колонки с метками ВС
-      const left = 150 + (startHour + startMinutes) * slotWidth;
-      let width;
+      const left = 150 + (totalStartMinutes * hourWidth / 60);
+      const width = Math.max(((totalEndMinutes - totalStartMinutes) * hourWidth / 60), 30);
       
-      if (isNextDay) {
-        // Если рейс заканчивается на следующий день, показываем его до конца текущего дня
-        width = (24 - startHour - startMinutes) * slotWidth;
-      } else {
-        // Иначе показываем полную продолжительность
-        width = ((endHour + endMinutes) - (startHour + startMinutes)) * slotWidth;
-        // Минимальная ширина блока
-        width = Math.max(width, 30);
-      }
-      
-      return { left, width, isNextDay };
+      return { 
+        left, 
+        width, 
+        isNextDay,
+        departureHours: startHour,
+        departureMinutes: startMinutes,
+        isUTC: true
+      };
     } else {
       // Для недельного представления или диапазона дат
       // Определяем день вылета относительно начальной даты
@@ -529,7 +550,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       
       // Проверяем, находится ли дата в пределах отображаемого периода
-      if (diffDays < 0 || diffDays >= timeSlots.length) {
+      if (diffDays < 0 || diffDays >= dateLabels.length) {
         return { left: 0, width: 0, isHidden: true };
       }
       
@@ -541,9 +562,9 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       const durationDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
       
       // Обрезаем продолжительность, если она выходит за пределы отображаемого периода
-      const visibleDays = Math.min(durationDays, timeSlots.length - diffDays);
+      const visibleDays = Math.min(durationDays, dateLabels.length - diffDays);
       
-      const slotWidth = 180; // ширина 1 дня в пикселях для недельного представления и произвольного диапазона
+      const slotWidth = 180; // ширина 1 дня в пикселях
       
       // Добавляем смещение для учета колонки с метками ВС
       const left = 150 + (diffDays * slotWidth);
@@ -552,7 +573,18 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       // Для рейсов, которые переходят границу отображаемого периода
       const isNextDay = durationDays > 1;
       
-      return { left, width, isNextDay };
+      // Возвращаем время отправления для показа в режиме недели
+      const depHours = departureTime.getHours();
+      const depMinutes = departureTime.getMinutes();
+      
+      return { 
+        left, 
+        width, 
+        isNextDay,
+        departureHours: depHours,
+        departureMinutes: depMinutes,
+        isUTC: true
+      };
     }
   };
   
@@ -598,6 +630,9 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     // В реальном приложении здесь может быть открытие модального окна с детальной информацией
   };
   
+  // Определяем, является ли текущее представление суточным
+  const isDailyView = viewType === 'daily' || (currentStartDate.toDateString() === currentEndDate.toDateString());
+  
   return (
     <div className="flight-gantt-chart">
       <div className="chart-controls">
@@ -624,23 +659,27 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
         
         <div className="date-range-controls">
           <div className="date-picker-group">
-            <label>С:</label>
+            <label>{viewType === 'daily' ? 'Дата:' : 'С:'}</label>
             <input 
               type="date" 
               value={formatDateForInput(currentStartDate)} 
-              onChange={handleStartDateChange} 
+              onChange={viewType === 'daily' ? handleSingleDateChange : handleStartDateChange} 
               className="date-picker"
             />
           </div>
-          <div className="date-picker-group">
-            <label>По:</label>
-            <input 
-              type="date" 
-              value={formatDateForInput(currentEndDate)} 
-              onChange={handleEndDateChange} 
-              className="date-picker"
-            />
-          </div>
+          
+          {viewType !== 'daily' && (
+            <div className="date-picker-group">
+              <label>По:</label>
+              <input 
+                type="date" 
+                value={formatDateForInput(currentEndDate)} 
+                onChange={handleEndDateChange} 
+                className="date-picker"
+              />
+            </div>
+          )}
+          
           <button onClick={handleGoToToday} className="today-button">
             Сегодня
           </button>
@@ -658,12 +697,36 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
         <div className="flights-timeline">
           <div className="aircraft-label-spacer"></div>
           <div className="timeline-headers">
-            {dateLabels.map((label, index) => (
-              <div key={index} className="timeline-day">
-                <div className="timeline-date">{label.date}</div>
-                <div className="timeline-weekday">{label.dayOfWeek}</div>
+            {isDailyView ? (
+              // Для режима дня показываем часы с фиксированной шириной
+              <div className="timeline-day time-header">
+                <div className="timeline-date">{dateLabels[0]?.date}</div>
+                <div className="timeline-weekday">{dateLabels[0]?.dayOfWeek}</div>
+                <div className="hourly-marks">
+                  {/* Создаем 24 фиксированных часовых метки */}
+                  {Array.from({length: 24}, (_, i) => (
+                    <div 
+                      key={i} 
+                      className="hour-mark" 
+                      style={{
+                        left: `${i * 60}px`, 
+                        width: '60px'
+                      }}
+                    >
+                      {i.toString().padStart(2, '0')}:00 UTC
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
+            ) : (
+              // Для недельного и произвольного режима показываем дни
+              dateLabels.map((label, index) => (
+                <div key={index} className="timeline-day">
+                  <div className="timeline-date">{label.date}</div>
+                  <div className="timeline-weekday">{label.dayOfWeek}</div>
+                </div>
+              ))
+            )}
           </div>
         </div>
         
@@ -674,33 +737,20 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
               <div className="aircraft-label">
                 {group.aircraftType} - {group.aircraftId.split('-')[1]}
               </div>
-              <div className="flights-row">
+              <div className={`flights-row ${isDailyView ? 'daily-view' : ''}`}>
                 {group.flights.map((flight, flightIndex) => {
-                  const { left, width, isNextDay, isHidden } = calculateFlightPosition(flight);
-                  if (isHidden) return null; // Не отображаем скрытые рейсы
+                  const position = calculateFlightPosition(flight);
+                  if (position.isHidden) return null; // Не отображаем скрытые рейсы
                   
+                  const { left, width, isNextDay } = position;
                   const flightColor = getFlightColor();
                   // Добавляем особую метку для ночных рейсов
                   const isOvernightFlight = flight.isOvernightFlight || isNextDay;
                   
-                  // Получаем время вылета для отображения в блоке
-                  let departureHours, departureMinutes;
-                  if (flight.departureDatetime) {
-                    const departureTime = new Date(flight.departureDatetime);
-                    departureHours = departureTime.getHours();
-                    departureMinutes = departureTime.getMinutes();
-                  } else if (flight.departure && flight.departure.time) {
-                    const timeParts = flight.departure.time.replace(' UTC', '').split(':');
-                    if (timeParts.length === 2) {
-                      departureHours = parseInt(timeParts[0], 10);
-                      departureMinutes = parseInt(timeParts[1], 10);
-                    }
-                  }
-                  
                   return (
                     <div 
                       key={flightIndex} 
-                      className={`flight-block ${isOvernightFlight ? 'continues overnight' : ''}`}
+                      className={`flight-block ${isOvernightFlight ? 'overnight' : ''}`}
                       style={{
                         left: `${left}px`,
                         width: `${width}px`,
@@ -709,18 +759,20 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                       }}
                       onClick={() => handleFlightClick(flight)}
                     >
-                      <div className="flight-label">
-                        {flight.fullFlightNumber}
-                      </div>
-                      <div className="flight-route">
-                        {flight.departure.airport} - {flight.arrival.airport}
-                      </div>
-                      {(timeSlots.length === 24) && typeof departureHours !== 'undefined' && (
+                      <div className="flight-content">
+                        <div className="flight-label">
+                          {flight.fullFlightNumber}
+                        </div>
+                        <div className="flight-route">
+                          {flight.departure.airport} - {flight.arrival.airport}
+                        </div>
                         <div className="flight-time">
-                          {departureHours}:{departureMinutes.toString().padStart(2, '0')}
+                          {position.departureHours !== undefined ? 
+                            `${position.departureHours.toString().padStart(2, '0')}:${position.departureMinutes.toString().padStart(2, '0')} UTC` : 
+                            flight.departure.time}
                           {isOvernightFlight && ' → +1d'}
                         </div>
-                      )}
+                      </div>
                     </div>
                   );
                 })}
