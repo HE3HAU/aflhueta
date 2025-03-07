@@ -216,6 +216,10 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       setCurrentStartDate(startOfWeek);
       setCurrentEndDate(endOfWeek);
+    } else {
+      // Для других случаев
+      setCurrentStartDate(selectedDate);
+      setCurrentEndDate(selectedDate);
     }
     
     setCustomMode(false);
@@ -264,7 +268,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
     } else if (viewType === 'daily') {
       setCurrentStartDate(today);
       setCurrentEndDate(today);
-    } else {
+    } else if (viewType === 'weekly') {
       // Находим понедельник текущей недели
       const dayOfWeek = today.getDay(); // 0 - воскресенье, 1 - понедельник и т.д.
       const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Сколько дней нужно прибавить до ближайшего понедельника
@@ -277,6 +281,10 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       setCurrentStartDate(startOfWeek);
       setCurrentEndDate(endOfWeek);
+    } else {
+      // Default случай
+      setCurrentStartDate(today);
+      setCurrentEndDate(today);
     }
   };
   
@@ -311,7 +319,9 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
         newEndDate.setDate(newStartDate.getDate() + 6);
         break;
       default:
-        return;
+        newStartDate = new Date(today);
+        newEndDate = new Date(today);
+        break;
     }
     
     setCurrentStartDate(newStartDate);
@@ -491,7 +501,8 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       const slotWidth = 60; // ширина 1 часа в пикселях
       
-      const left = (startHour + startMinutes) * slotWidth;
+      // Добавляем смещение для учета колонки с метками ВС
+      const left = 150 + (startHour + startMinutes) * slotWidth;
       let width;
       
       if (isNextDay) {
@@ -534,7 +545,8 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       const slotWidth = 180; // ширина 1 дня в пикселях для недельного представления и произвольного диапазона
       
-      const left = diffDays * slotWidth;
+      // Добавляем смещение для учета колонки с метками ВС
+      const left = 150 + (diffDays * slotWidth);
       const width = visibleDays * slotWidth;
       
       // Для рейсов, которые переходят границу отображаемого периода
@@ -643,32 +655,13 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
       
       <div className="chart-container">
         {/* Шкала времени */}
-        <div className="time-scale">
-          <div className="time-scale-labels">
+        <div className="flights-timeline">
+          <div className="aircraft-label-spacer"></div>
+          <div className="timeline-headers">
             {dateLabels.map((label, index) => (
-              <div key={index} className="date-label" style={{ 
-                left: `${index * ((timeSlots.length === 24) ? 0 : 180)}px`,
-                width: (timeSlots.length === 24) ? '100%' : 'auto'
-              }}>
-                {(timeSlots.length === 24) ? (
-                  <span>{label.date} ({label.dayOfWeek})</span>
-                ) : (
-                  <>
-                    <div className="date">{label.date}</div>
-                    <div className="day">{label.dayOfWeek}</div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="time-slots">
-            {timeSlots.map((slot, index) => (
-              <div 
-                key={index} 
-                className={`time-slot ${slot.isWeekend ? 'weekend' : ''}`} 
-                style={{ width: `${slot.width}px` }}
-              >
-                {slot.time}
+              <div key={index} className="timeline-day">
+                <div className="timeline-date">{label.date}</div>
+                <div className="timeline-weekday">{label.dayOfWeek}</div>
               </div>
             ))}
           </div>
@@ -686,7 +679,7 @@ const FlightGanttChart = ({ flights = [], startDate, endDate }) => {
                   const { left, width, isNextDay, isHidden } = calculateFlightPosition(flight);
                   if (isHidden) return null; // Не отображаем скрытые рейсы
                   
-                  const flightColor = getFlightColor(flight);
+                  const flightColor = getFlightColor();
                   // Добавляем особую метку для ночных рейсов
                   const isOvernightFlight = flight.isOvernightFlight || isNextDay;
                   
